@@ -12,6 +12,7 @@ import {IERC20}    from "../../lib/v4-core/lib/openzeppelincontracts/contracts/t
 import {SafeERC20} from "../../lib/v4-core/lib/openzeppelincontracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PositionTracker} from "./PositionTracker.sol";
 import {liquidityDistributor} from "./LiquidityDistributor.sol";
+import {NavCalculator} from "../libraries/NavCalculator.sol";
 
 contract PoolInteractor {
     using SafeERC20     for IERC20;
@@ -32,10 +33,11 @@ contract PoolInteractor {
     struct Slot {
         int256 lowerTick;
         int256 upperTick;
-        uint256 liquidityAmount;
     }
 
-    mapping (uint256 => Slot) public tokenIdToSlot;
+    Slot[] public targetSlots;
+
+    mapping (Slot => uint256) public SlotToTokenId;
 
     struct SlotPlan{
         int256 lowerTick;
@@ -68,19 +70,43 @@ contract PoolInteractor {
 /*                             Aradhya's functions                            */
 /* -------------------------------------------------------------------------- */
 
-    function checkLiquiditySlots {
-        
+    function checkLiquiditySlotsAndHasMintTokenId() public view returns(){
+        (, int24 currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
+
+        currentTickLowerBound = (currentTick / Config.TICK_SPACING) * Config.TICK_SPACING;
+
+        uint8 volatilityIndex = Config.volatility_index;
+        if (volatilityIndex == Config.HIGH_VOLATILITY) {
+            uint8 numOfSlots = 7;
+        }
+        else if (volatilityIndex == Config.MEDIUM_VOLATILITY) {
+            uint8 numOfSlots = 5;
+        }
+        else {
+            uint8 numOfSlots = 3;
+        }
+        targetSlots = new Slot[](numOfSlots);
+        for (uint256 i = 0; i < numOfSlots; i++) {
+            targetSlots[i] = Slot({
+                lowerTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2) * int256(Config.TICK_SPACING)))),
+                upperTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2 + 1) * int256(Config.TICK_SPACING))))
+            });
+            if (SlotToTokenId[targetSlots[i]] == 0) {
+                _mint(poolKey, int24(targetSlots[i].lowerTick), int24(targetSlots[i].upperTick), 0);
+            }
+        }
     }
 
+    
 /* -------------------------------------------------------------------------- */
 /*                             internal functions                             */
 /* -------------------------------------------------------------------------- */
-    function mint(
+    function _mint(
         PoolKey calldata key,
         int24 tickLower,
         int24 tickUpper,
         uint256 liquidity
-    ) internal payable returns (uint256) {
+    ) internal {
         bytes memory actions = abi.encodePacked(
             uint8(Actions.MINT_POSITION),
             uint8(Actions.SETTLE_PAIR),
@@ -102,13 +128,58 @@ contract PoolInteractor {
 
         params[2] = abi.encode(address(0), address(this));
 
-        uint256 tokenId = posm.nextTokenId();
+        uint256 tokenId = Config.positionManager.nextTokenId();
 
-        Config.poolManager.modifyLiquidities{value: address(this).balance}(
+        Config.positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
         );
 
-        return tokenId;
+        Slot memory s = Slot({
+            lowerTick: tickLower,
+            upperTick: tickUpper
+        });
+        SlotToTokenId[s] = tokenId;
+    }
+
+    function _increaseLiquidity(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint128 amount0Max,
+        uint128 amount1Max
+    ) internal payable {
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.INCREASE_LIQUIDITY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.SWEEP)
+        );
+        bytes[] memory params = new bytes[](4);
+
+        // INCREASE_LIQUIDITY params
+        params[0] = abi.encode(
+            tokenId,
+            liquidity,
+            amount0Max,
+            amount1Max,
+            // hook data
+            ""
+        );
+
+        // CLOSE_CURRENCY params
+        // currency 0
+        params[1] = abi.encode(address(0), USDC);
+
+        // CLOSE_CURRENCY params
+        // currency 1
+        params[2] = abi.encode(USDC);
+
+        // SWEEP params
+        // currency, address to
+        params[3] = abi.encode(address(0), address(this));
+
+        Config.positionManager.modifyLiquidities{value: address(this).balance}(
+            abi.encode(actions, params), block.timestamp
+        );
     }
 
 /* -------------------------------------------------------------------------- */
