@@ -116,4 +116,27 @@ contract DepositManager is ShareAccounting, NavCalculator{
             }
         }
         emit Deposited(msg.sender, msg.value, usdcAmount, sharesToMint, preNavUsdc);
+    }
+
+    function withdraw(uint256 sharesToBurn) external {
+
+        if (sharesToBurn == 0) revert ZeroShares();
+        uint256 idx = userIndex[msg.sender];
+
+        if (idx == 0) revert InsufficientShares(sharesToBurn, 0); //never deposited
+
+        User storage user = users[idx];
+
+        if (user.sharesOwned < sharesToBurn){
+            revert InsufficientShares(sharesToBurn, user.sharesOwned);
+        }
+
+        (uint256 totalEth, uint256 totalUsdc, uint256 navUsdc) = computeNav();
+        (uint256 ethOwed, uint256 usdcOwed) = computeTokensForShares(sharesToBurn, totalEth, totalUsdc);
+
+        if (idleEth == 0 && idleUsdc == 0) revert BufferEmpty();
+
+
+    }
+
 }
