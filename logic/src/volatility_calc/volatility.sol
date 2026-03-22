@@ -63,13 +63,13 @@ contract Volatility {
 
         _calculateEwmaVariance(delta);
 
-        lastTick = m_currentTick;
-        lastObservationTimestamp = m_currentTimestamp;
-        lastObservationBlock = m_currentBlock;
-
         volatility_calculated = _calculateVolatility();
 
         _updateVolatilityIndexValue(volatility_calculated);
+
+        lastTick = m_currentTick;
+        lastObservationTimestamp = m_currentTimestamp;
+        lastObservationBlock = m_currentBlock;
     }
 
     /* -------------------------------------------------------------------------- */
