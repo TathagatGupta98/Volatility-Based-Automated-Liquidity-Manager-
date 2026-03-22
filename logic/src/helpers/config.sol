@@ -48,6 +48,8 @@ library Config {
     address public constant USDC_ADDRESS =
         0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 
+    address public constant PERMIT2_ADDRESS = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
     function poolKey() internal pure returns (PoolKey memory) {
         return
             PoolKey({

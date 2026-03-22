@@ -229,7 +229,8 @@ uint256 internal constant WAD = 1e18;
     event Unpaused(address indexed by);
 
 /* ------------------------------- Constructor ------------------------------ */
-    constructor(address _poolManager,
+    constructor(
+        address _poolManager,
         address _positionManager,
         address _permit2,
         address _usdc,
