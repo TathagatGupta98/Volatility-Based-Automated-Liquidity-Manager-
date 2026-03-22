@@ -22,6 +22,16 @@ library DistributionMath {
           weightedLiquidity[i] = (totalLiquidity * weights[i]) / 100;
        }
 
+       uint256 dust = calculateDust(totalLiquidity, weightedLiquidity);
 
+       weightedLiquidity[numberOfSlots/2] = weightedLiquidity[numberOfSlots/2] + dust;     
     }  
+
+    function calculateDust(uint256 totalLiquidity, uint256[] memory weightedLiquidity) internal pure returns (uint256 dust) {
+        uint256 distributedAmount = 0;
+        for( uint256 i=0 ; i < weightedLiquidity.length; i++){
+          distributedAmount += weightedLiquidity[i];
+        }
+        dust = totalLiquidity - distributedAmount;
+    }
 }
