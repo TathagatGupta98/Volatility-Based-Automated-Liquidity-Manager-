@@ -34,6 +34,9 @@ import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 /* ------------------------------- constructor ------------------------------ */
 contract DepositManager is ShareAccounting, NavCalculator{
+    /**
+     * @notice Deploys `DepositManager` and forwards configuration to `VaultStorage`.
+     */
     constructor() VaultStorage(
         Config.POOL_MANAGER_ADDRESS,
         Config.POSITION_MANAGER_ADDRESS,
@@ -45,6 +48,9 @@ contract DepositManager is ShareAccounting, NavCalculator{
     ) {}
 
 /* -------------------------------- mofifiers -------------------------------- */
+    /**
+     * @notice Ensures the vault is not paused.
+     */
     modifier whenNotPaused {
         if(paused == false){
             _;
@@ -56,6 +62,10 @@ contract DepositManager is ShareAccounting, NavCalculator{
 
 /* -------------------------------- Functions ------------------------------- */
 
+    /**
+     * @notice Deposit ETH (msg.value) and/or USDC into the vault and mint corresponding shares.
+     * @param usdcAmount Amount of USDC to deposit (in USDC base units).
+     */
     function deposit(uint256 usdcAmount) external payable whenNotPaused{
         uint256 depositValueUsdc = computeDepositValueUsdc(msg.value, usdcAmount);
         validateDeposit(msg.value, usdcAmount, depositValueUsdc);
@@ -118,6 +128,10 @@ contract DepositManager is ShareAccounting, NavCalculator{
         emit Deposited(msg.sender, msg.value, usdcAmount, sharesToMint, preNavUsdc);
     }
 
+    /**
+     * @notice Burn vault shares to withdraw proportional ETH and USDC from the buffer.
+     * @param sharesToBurn Number of shares to burn for withdrawal.
+     */
     function withdraw(uint256 sharesToBurn) external {
 
         if (sharesToBurn == 0) revert ZeroShares();
