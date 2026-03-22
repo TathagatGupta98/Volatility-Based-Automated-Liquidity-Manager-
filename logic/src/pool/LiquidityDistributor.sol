@@ -15,12 +15,12 @@ contract LiquidityDistributor {
     uint256 private currentLowerTick;
     uint256 public constant TICKSPACING = 60 ; //ETH-USDC POOL
     uint256 public constant MAX_TICK = 887272;
-    uint256 public constant MIN_TICK = -887272; 
+    int256 public constant MIN_TICK = -887272; 
     uint256[] public weight;
 
     struct SlotPlan{
-        int24 lowerTick;
-        int24 upperTick;
+        uint256 lowerTick;
+        uint256 upperTick;
         uint256 liquidityAmount;
     }
 
@@ -58,8 +58,8 @@ contract LiquidityDistributor {
 
         slotPlan = new SlotPlan[](numberOfSlots);
         for ( uint256 i=0 ; i < numberOfSlots ; i++){
-            slotPlan[i].lowerTick = int24(currentLowerTick + (i - (numberOfSlots -1)/2)*TICKSPACING);
-            slotPlan[i].upperTick = int24(currentLowerTick + (i - (numberOfSlots -1)/2 + 1)*TICKSPACING);
+            slotPlan[i].lowerTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2)*TICKSPACING);
+            slotPlan[i].upperTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2 + 1)*TICKSPACING);
             slotPlan[i].liquidityAmount = liquidityDistribution[i];
         }
 
