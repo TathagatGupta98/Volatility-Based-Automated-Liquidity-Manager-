@@ -36,6 +36,7 @@ contract Volatility {
         lastTick = tick;
         lastObservationTimestamp = uint32(block.timestamp);
         lastObservationBlock = block.number;
+        ewmaVariance = 0;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -58,7 +59,7 @@ contract Volatility {
         if (errorCode != 0 && errorCode != 1) {
             revert flashLoanAttack();
         } else if (errorCode == 1) {
-            delta = 300;
+            delta = 150;
         }
 
         _calculateEwmaVariance(delta);
@@ -84,7 +85,7 @@ contract Volatility {
             return 10;
         } else if (time <= lastObservationTimestamp + Config.TMIN) {
             return 11;
-        } else if (delta > 300 || delta < -300) {
+        } else if (delta > 150 || delta < -150) {
             return 1;
         } else {
             return 0;
@@ -107,9 +108,9 @@ contract Volatility {
     }
 
     function _updateVolatilityIndexValue(uint256 volatility) internal {
-        if (volatility < 1500000000000000) {
+        if (volatility < 2000000000000000) {
             Config.volatility_index = Config.LOW_VOLATILITY;
-        } else if (volatility >= 1500000000000000 && volatility < 2750000000000000) {
+        } else if (volatility >= 2000000000000000 && volatility < 7000000000000000) {
             Config.volatility_index = Config.MEDIUM_VOLATILITY;
         } else {
             Config.volatility_index = Config.HIGH_VOLATILITY;
