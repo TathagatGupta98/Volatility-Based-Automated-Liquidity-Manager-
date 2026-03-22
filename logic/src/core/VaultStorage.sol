@@ -75,7 +75,6 @@ uint256 internal constant WAD = 1e18;
     IPositionManager public immutable positionManager;
     IAllowanceTransfer public immutable permit2;
     address public immutable USDC;
-    address public immutable ethUsdPriceFeed;
     PoolKey public poolKey;
 
 /* --------------------------- Type Decralrations --------------------------- */
@@ -83,7 +82,7 @@ uint256 internal constant WAD = 1e18;
         uint256 ethDeposited;
         uint256 usdcDeposited;
         uint256 sharesOwned;
-        uint256 depositTimeStamp;
+        uint256 depositTimestamp;
         bool isActive;
     }
 
@@ -96,40 +95,33 @@ uint256 internal constant WAD = 1e18;
         bool isActive; 
     }
 
-    struct WithdrawalRequest {
-        address user;               
-        uint256 sharesBurning;      
-        uint256 requestTimestamp;   
-        bool fulfilled;             
-    }
+
 
 /* ----------------------------- State Variables ---------------------------- */
+
     User[] public users;
+    mapping(address => uint256) public userIndex;
 
-    mapping(address => uint256) usersIndex;
+    uint256 public totalShares;
+    uint256 public totalEthDeposited;
+    uint256 public totalUsdcDeposited;
+    uint256 public idleEth;
+    uint256 public idleUsdc;
+    uint256 public lastNavUsdc;
+    uint256 public lastNavTimestamp;
+    uint256 public totalPositions;
 
-    uint256 totalShares;
-    uint256 totalEthDeposited;
-    uint256 totalUsdcDeposited;
-    uint256 idleEth;
-    uint256 idleUsdc;
-    uint256 lastNavEth; 
-    uint256 lastNavTimestamp;
-    uint256 totalPositions;
-
-    uint8 volatility_check;
+    uint8 public volatilityCheck;
     uint256 public ewmaVariance;
     uint256 public lastObservationTimestamp;
     uint256 public ewmaAlpha;
 
 
     PositionInfo[] public positions;
-
     mapping(uint256 => uint256) public tokenIdToPositionIndex;
-        
     uint256 public activePositionCount;
     int24 public distributionCenterTick;
-    int24 public slotWidthTicks;
+    uint24 public slotWidthTicks;
 
     address public owner;
     bool public paused;
@@ -152,13 +144,7 @@ uint256 internal constant WAD = 1e18;
         uint256 navAtWithdrawal
     );
 
-    event WithdrawalPartial(
-        address indexed user,
-        uint256 sharesRequested,
-        uint256 sharesBurned,
-        uint256 ethReturned,
-        uint256 usdcReturned
-    );
+
 
     event NavUpdated(
         uint256 newNavUsdc,
@@ -235,11 +221,11 @@ uint256 internal constant WAD = 1e18;
         address _permit2,
         address _usdc,
         PoolKey memory _poolKey,
-        int24 _slotWidthTicks,
+        uint24 _slotWidthTicks,
         uint256 _ewmaAlpha
     ) {
-        if (_slotWidthTicks <= 0 || _slotWidthTicks % _poolKey.tickSpacing != 0)
-            revert InvalidTickSpacing(_slotWidthTicks, _poolKey.tickSpacing);
+        if (_slotWidthTicks == 0 || int24(_slotWidthTicks) % _poolKey.tickSpacing != 0)
+            revert InvalidTickSpacing(int24(_slotWidthTicks), _poolKey.tickSpacing);
 
         if (_ewmaAlpha == 0 || _ewmaAlpha >= WAD)
             revert InvalidAlpha(_ewmaAlpha);
@@ -253,7 +239,7 @@ uint256 internal constant WAD = 1e18;
         slotWidthTicks   = _slotWidthTicks;
 
         ewmaAlpha        = _ewmaAlpha;
-        volatility_check  = 1; 
+        volatilityCheck  = 1; 
 
         owner            = msg.sender;
 
@@ -261,7 +247,7 @@ uint256 internal constant WAD = 1e18;
             ethDeposited:     0,
             usdcDeposited:    0,
             sharesOwned:      0,
-            depositTimeStamp: 0,
+            depositTimestamp: 0,
             isActive:         false
         }));
     }

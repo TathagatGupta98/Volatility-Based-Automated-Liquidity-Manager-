@@ -60,8 +60,8 @@ contract ShareAccounting is VaultStorage{
      */
     function getEthUsdcPrice() public view returns (uint256 p_actual) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(Config.poolId());
-
-        uint265 p_raw = (uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) / 2**192;
+        // Use FullMath.mulDiv to avoid overflow
+        uint256 p_raw = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 192);
         p_actual = p_raw * 1e12;
     }
 
@@ -74,7 +74,7 @@ contract ShareAccounting is VaultStorage{
      */
     function computeDepositValueUsdc(uint256 ethAmount, uint256 usdcAmount) internal view returns(uint256 totalValueUsdc){
         uint256 ethPriceUsdc = getEthUsdcPrice();
-        uint256 ethAmountInUsdc = (ethAmount * getEthUsdcPrice) / ETH_DECIMALS;
+        uint256 ethAmountInUsdc = FullMath.mulDiv(ethAmount, ethPriceUsdc, ETH_DECIMALS);
         totalValueUsdc = usdcAmount + ethAmountInUsdc;
     }
 
@@ -86,13 +86,12 @@ contract ShareAccounting is VaultStorage{
      * @return sharesToMint Number of shares to mint for the deposit.
      */
     function computeSharesForDeposit(uint256 depositValueUsd, uint256 currentNavUsdc) internal view returns (uint256 sharesToMint){
-        if(initialized){
-            sharesToMint = (depositValueUsd * totalShares) / currentNavUsdc;
+        if (!initialized) {
+            // Bootstrapping: scale by WAD
+            sharesToMint = FullMath.mulDiv(depositValueUsd, WAD, USDC_DECIMALS);
+        } else {
+            sharesToMint = FullMath.mulDiv(depositValueUsd, totalShares, currentNavUsdc);
         }
-        else{
-            initialized = true;
-            sharesToMint = (depositValueUsd * WAD)/USDC_DECIMALS;    
-        } 
     }
 
     /**
@@ -109,9 +108,8 @@ contract ShareAccounting is VaultStorage{
         uint256 currentTotalEth, 
         uint256 currentTotalUsdc
     ) internal view returns(uint256 ethToReturn, uint256 usdcToReturn){
-
-        ethToReturn  = (sharesToBurn * currentTotalEth)  / totalShares;
-        usdcToReturn = (sharesToBurn * currentTotalUsdc) / totalShares;
+        ethToReturn  = FullMath.mulDiv(sharesToBurn, currentTotalEth, totalShares);
+        usdcToReturn = FullMath.mulDiv(sharesToBurn, currentTotalUsdc, totalShares);
     }
 
     /**
