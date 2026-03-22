@@ -33,6 +33,7 @@ import {Config} from "../helpers/config.sol";
 /* -------------------------------------------------------------------------- */
 contract ShareAccounting is VaultStorage{
 
+
 /* ------------------------------- constructor ------------------------------ */
     constructor() VaultStorage(
         Config.POOL_MANAGER_ADDRESS,
@@ -45,9 +46,25 @@ contract ShareAccounting is VaultStorage{
     ) {}
 
 
-    function getEthUsdPrice() returns (uint256 p_actual) {
+    function getEthUsdcPrice() returns (uint256 p_actual) {
         uint265 sqrtPriceX96 = poolManager.getSlot0(poolId);
         uint265 p_raw = (sqrtPriceX96 * sqrtPriceX96) / 2**96;
-        uint256 p_actual = p_raw * (10**12);
+        p_actual = p_raw * (10**12);
     }
+
+    function computeDepositValueUsdc(uint256 ethAmount, uint256 usdcAmount) returns(uint256 totalValueUsdc){
+        uint256 ethPriceUsdc = getEthUsdcPrice();
+        uint256 ethAmountInUsdc = (ethAmount * getEthUsdcPrice)/ETH_DECIMALS;
+        totalValueUsdc = usdcAmount + ethAmountInUsdc;
+    }
+
+    function computeSharesForDeposit(uint256 depositValueUsd, uint256 currentNavUsdc) returns (uint256 sharesToMint){
+        if(initialized){
+            sharesToMint = (depositValueUsd * totalShares) / currentNavUsdc;
+        }
+        else{
+            sharesToMint = (depositValueUsd * WAD)/USDC_DECIMALS;    
+        } 
+    }
+
 }
