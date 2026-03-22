@@ -55,6 +55,7 @@ contract DepositManager is ShareAccounting, NavCalculator{
     }
 
 /* -------------------------------- Functions ------------------------------- */
+
     function deposit(uint256 usdcAmount) external payable whenNotPaused{
         uint256 depositValueUsdc = computeDepositValueUsdc(msg.value, usdcAmount);
         validateDeposit(msg.value, usdcAmount, depositValueUsdc);
@@ -89,7 +90,7 @@ contract DepositManager is ShareAccounting, NavCalculator{
             }));
 
             userIndex[msg.sender] = users.length - 1;
-            
+
         } else {
             UserInfo storage user = users[idx];
             user.ethDeposited     += msg.value;
@@ -99,6 +100,20 @@ contract DepositManager is ShareAccounting, NavCalculator{
             user.isActive          = true;
         } 
 
+        {
+            uint256 ethPriceUsdc     = getEthUsdcPrice();
+            uint256 idleEthInUsdc    = FullMath.mulDiv(idleEth, ethPriceUsdc, ETH_DECIMALS);
+            uint256 totalIdleInUsdc  = idleEthInUsdc + idleUsdc;
 
+            uint256 upperBoundUsdc = FullMath.mulDiv(
+                preNavUsdc,
+                BUFFER_UPPER_BOUND,
+                WAD
+            );
 
+            if (totalIdleInUsdc > upperBoundUsdc) {
+                emit BufferDeployed(idleEth, idleUsdc, idleEth, idleUsdc);
+            }
+        }
+        emit Deposited(msg.sender, msg.value, usdcAmount, sharesToMint, preNavUsdc);
 }
