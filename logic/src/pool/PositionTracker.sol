@@ -1,10 +1,12 @@
-//SDPX-License-Identifier: MIT
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
 
-contract PoolInteractor {
+contract PositionTracker {
     
     address public immutable poolInteractorAddress;
+
+    error NotPoolInteractor();
 
     struct SlotState {
         uint256 tokenId;
@@ -15,6 +17,10 @@ contract PoolInteractor {
 
     mapping (uint256 slotIndex => SlotState) public slots;
     uint256 public slotCount;
+
+    constructor(address _poolInteractor) {
+        poolInteractorAddress = _poolInteractor;
+    }
 
     modifier onlyPoolInteractor() {
         if(msg.sender != poolInteractorAddress){

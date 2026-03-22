@@ -1,49 +1,53 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {IPoolManager} from "../../lib/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "../../lib/v4-core/src/types/PoolKey.sol";
-import {PoolId  PoolIdLibrary} from "../../lib/v4-core/src/types/PoolId.sol";
-import {Currency} from "../../lib/v4-core/src/types/Currency.sol";
-import {StateLibrary} from "../../lib/v4-core/src/libraries/StateLibrary.sol";
-import {IPositionManager} from "../../lib/v4-periphery/src/interfaces/IPositionManager.sol";
-import {Actions}          from "../../lib/v4-periphery/src/libraries/Actions.sol";
-import {IERC20}    from "../../lib/v4-core/lib/openzeppelincontracts/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "../../lib/v4-core/lib/openzeppelincontracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
+import {Actions} from "v4-periphery/src/libraries/Actions.sol";
+import {IERC20} from "v4-core/lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "v4-core/lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PositionTracker} from "./PositionTracker.sol";
-import {liquidityDistributor} from "./LiquidityDistributor.sol";
-import {NavCalculator} from "../libraries/NavCalculator.sol";
+import {LiquidityDistributor} from "./LiquidityDistributor.sol";
+import {DistributionMath} from "../libraries/DistributionMath.sol";
+import {Config} from "../helpers/config.sol";
 
 contract PoolInteractor {
     using SafeERC20     for IERC20;
     using PoolIdLibrary for PoolKey;
     using StateLibrary  for IPoolManager;
 
+    /* --------------------------------- errors --------------------------------- */
+    error NotAuthorized();
+    error RebalanceTooSoon();
+    error SwapSlippageExceeded();
+    error InsufficientBuffer();
+
+    /* --------------------------------- state ---------------------------------- */
     IPositionManager public immutable positionManager;
     IPoolManager     public immutable poolManager;
-    IPermit2         public immutable permit2;
     PositionTracker  public immutable positionTracker;
-    LiquidityDistributor public immutable liquidityDistributor;
-    address public immutable token0;
-    address public immutable token1;
+    address          public immutable USDC;
+    address          public owner;
 
-    Poolkey internal immutable poolKey = Config.poolKey();
-    PoolId internal immutable poolId = Config.poolId();
+    uint256 public constant BUFFER_BPS = 1000; // 10% buffer
+    uint256 public constant BPS_DENOM  = 10000;
+    uint256 public constant SWAP_THRESHOLD_BPS = 8500; // swap when 85%+ is single token
+    uint256 public constant MIN_REBALANCE_INTERVAL = 60; // seconds
+    uint256 public lastRebalanceTimestamp;
+
+    uint256 public idleEth;
+    uint256 public idleUsdc;
 
     struct Slot {
-        int256 lowerTick;
-        int256 upperTick;
+        int24 lowerTick;
+        int24 upperTick;
     }
 
-    Slot[] public targetSlots;
-
-    mapping (Slot => uint256) public SlotToTokenId;
-
-    struct SlotPlan{
-        int256 lowerTick;
-        int256 upperTick;
-        uint256 liquidityAmount;
-    }
+    mapping(bytes32 => uint256) public slotToTokenId;
 
     enum Action {
         SKIP,
@@ -60,49 +64,257 @@ contract PoolInteractor {
         uint256 tokenId;
         uint128 currentLiq;
         uint128 targetLiq;
-        int256   tickLower;
-        int256   tickUpper;
+        int24   tickLower;
+        int24   tickUpper;
     }
 
-    SlotPlan[] public slotPlan;
+    /* -------------------------------- modifiers ------------------------------- */
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotAuthorized();
+        _;
+    }
 
-/* -------------------------------------------------------------------------- */
-/*                             Aradhya's functions                            */
-/* -------------------------------------------------------------------------- */
+    /* ------------------------------- constructor ------------------------------ */
+    constructor(address _positionTracker) {
+        poolManager     = Config.poolManager;
+        positionManager = Config.positionManager;
+        USDC            = Config.USDC_ADDRESS;
+        positionTracker = PositionTracker(_positionTracker);
+        owner           = msg.sender;
+    }
 
-    function checkLiquiditySlotsAndHasMintTokenId() public view returns(){
-        (, int24 currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
+    /* -------------------------------------------------------------------------- */
+    /*                              REBALANCE ENTRY                               */
+    /* -------------------------------------------------------------------------- */
 
-        currentTickLowerBound = (currentTick / Config.TICK_SPACING) * Config.TICK_SPACING;
-
-        uint8 volatilityIndex = Config.volatility_index;
-        if (volatilityIndex == Config.HIGH_VOLATILITY) {
-            uint8 numOfSlots = 7;
+    /**
+     * @notice Main rebalance function. Called by VaultIntegration when volatility
+     *         changes OR when the current tick drifts outside the center slot.
+     * @param totalLiquidityAvailable Total liquidity (in token units) the vault
+     *        wants deployed *after* the 10% buffer is separated.
+     */
+    function rebalance(uint256 totalLiquidityAvailable) external onlyOwner {
+        if (block.timestamp < lastRebalanceTimestamp + MIN_REBALANCE_INTERVAL) {
+            revert RebalanceTooSoon();
         }
-        else if (volatilityIndex == Config.MEDIUM_VOLATILITY) {
-            uint8 numOfSlots = 5;
+
+        // --- Step 1: separate 10% buffer ---
+        uint256 bufferAmount   = (totalLiquidityAvailable * BUFFER_BPS) / BPS_DENOM;
+        uint256 deployableLiq  = totalLiquidityAvailable - bufferAmount;
+
+        // --- Step 2: read current tick & volatility index ---
+        (, int24 currentTick,,) = poolManager.getSlot0(Config.poolId());
+        uint256 volIndex = Config.volatility_index;
+
+        // --- Step 3: compute number of slots from volatility ---
+        uint256 numSlots = 3 + (volIndex - 1) * 2;
+        // LOW=1 -> 3 slots, MEDIUM=2 -> 5 slots, HIGH=3 -> 7 slots
+
+        // --- Step 4: build equal-weight array & distribute liquidity ---
+        uint256[] memory weights = _buildEqualWeights(numSlots);
+        uint256[] memory liqPerSlot = DistributionMath.Distribute(deployableLiq, weights);
+
+        // --- Step 5: compute tick ranges for each slot ---
+        int24 currentLowerTick = _alignTick(currentTick);
+
+        SlotDecision[] memory decisions = new SlotDecision[](numSlots);
+
+        for (uint256 i = 0; i < numSlots; i++) {
+            int24 offset    = int24(int256(i)) - int24(int256(numSlots - 1) / 2);
+            int24 tickLower = currentLowerTick + offset * Config.TICK_SPACING;
+            int24 tickUpper = tickLower + Config.TICK_SPACING;
+
+            bytes32 slotKey = _slotKey(tickLower, tickUpper);
+            uint256 existingTokenId = slotToTokenId[slotKey];
+
+            SlotDecision memory d;
+            d.tickLower = tickLower;
+            d.tickUpper = tickUpper;
+            d.targetLiq = uint128(liqPerSlot[i]);
+
+            if (existingTokenId == 0) {
+                // no position exists at this range -> mint new
+                d.action     = Action.MINT;
+                d.tokenId    = 0;
+                d.currentLiq = 0;
+            } else {
+                uint128 currentLiq = _getCurrentLiquidity(existingTokenId, tickLower, tickUpper);
+                d.tokenId    = existingTokenId;
+                d.currentLiq = currentLiq;
+
+                if (currentLiq == 0) {
+                    d.action = Action.REACTIVATE;
+                } else if (d.targetLiq > currentLiq) {
+                    d.action = Action.INCREASE;
+                } else if (d.targetLiq < currentLiq) {
+                    d.action = Action.DECREASE;
+                } else {
+                    d.action = Action.SKIP;
+                }
+            }
+
+            decisions[i] = d;
         }
-        else {
-            uint8 numOfSlots = 3;
-        }
-        targetSlots = new Slot[](numOfSlots);
-        for (uint256 i = 0; i < numOfSlots; i++) {
-            targetSlots[i] = Slot({
-                lowerTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2) * int256(Config.TICK_SPACING)))),
-                upperTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2 + 1) * int256(Config.TICK_SPACING))))
-            });
-            if (SlotToTokenId[targetSlots[i]] == 0) {
-                _mint(poolKey, int24(targetSlots[i].lowerTick), int24(targetSlots[i].upperTick), 0);
+
+        // --- Step 6: close old slots that are no longer in the target set ---
+        uint256 oldSlotCount = positionTracker.slotCount();
+        for (uint256 i = 0; i < oldSlotCount; i++) {
+            PositionTracker.SlotState memory stored = positionTracker.getSlotState(i);
+            if (!stored.isActive) continue;
+
+            bool stillNeeded = false;
+            for (uint256 j = 0; j < numSlots; j++) {
+                if (stored.lowerTick == int256(decisions[j].tickLower) &&
+                    stored.upperTick == int256(decisions[j].tickUpper)) {
+                    stillNeeded = true;
+                    break;
+                }
+            }
+
+            if (!stillNeeded && stored.tokenId != 0) {
+                uint128 liq = _getCurrentLiquidity(
+                    stored.tokenId,
+                    int24(int256(stored.lowerTick)),
+                    int24(int256(stored.upperTick))
+                );
+                if (liq > 0) {
+                    _decreaseLiquidity(stored.tokenId, liq);
+                }
+                positionTracker.setHasLiquidity(i, false);
             }
         }
+
+        // --- Step 7: execute each decision ---
+        for (uint256 i = 0; i < numSlots; i++) {
+            SlotDecision memory d = decisions[i];
+
+            if (d.action == Action.SKIP) {
+                continue;
+            } else if (d.action == Action.MINT || d.action == Action.REACTIVATE) {
+                if (d.tokenId == 0) {
+                    _mint(Config.poolKey(), d.tickLower, d.tickUpper, uint256(d.targetLiq));
+                } else {
+                    _increaseLiquidity(d.tokenId, uint256(d.targetLiq), type(uint128).max, type(uint128).max);
+                }
+            } else if (d.action == Action.INCREASE) {
+                uint128 delta = d.targetLiq - d.currentLiq;
+                _increaseLiquidity(d.tokenId, uint256(delta), type(uint128).max, type(uint128).max);
+            } else if (d.action == Action.DECREASE) {
+                uint128 delta = d.currentLiq - d.targetLiq;
+                _decreaseLiquidity(d.tokenId, delta);
+            }
+
+            // update tracker
+            positionTracker.setSlotState(
+                i,
+                d.tokenId != 0 ? d.tokenId : slotToTokenId[_slotKey(d.tickLower, d.tickUpper)],
+                int256(d.tickLower),
+                int256(d.tickUpper),
+                uint256(d.targetLiq),
+                d.targetLiq > 0
+            );
+        }
+
+        positionTracker.setSlotCount(numSlots);
+        lastRebalanceTimestamp = block.timestamp;
     }
 
-    
-/* -------------------------------------------------------------------------- */
-/*                             internal functions                             */
-/* -------------------------------------------------------------------------- */
+    /* -------------------------------------------------------------------------- */
+    /*                        PRICE-DRIFT REBALANCE CHECK                         */
+    /* -------------------------------------------------------------------------- */
+
+    /**
+     * @notice Returns true if the current tick has drifted outside the center
+     *         slot of our active distribution, meaning a rebalance is needed.
+     */
+    function needsTickDriftRebalance() external view returns (bool) {
+        if (positionTracker.slotCount() == 0) return false;
+
+        (, int24 currentTick,,) = poolManager.getSlot0(Config.poolId());
+        uint256 centerIndex = positionTracker.slotCount() / 2;
+        PositionTracker.SlotState memory center = positionTracker.getSlotState(centerIndex);
+
+        return currentTick < int24(int256(center.lowerTick)) ||
+               currentTick >= int24(int256(center.upperTick));
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                          TOKEN-RATIO SWAP LOGIC                            */
+    /* -------------------------------------------------------------------------- */
+
+    /**
+     * @notice Checks if the idle buffer is skewed >85% toward one token and
+     *         returns which direction to swap.
+     * @return shouldSwap  Whether a swap is warranted
+     * @return zeroForOne  true = sell ETH for USDC, false = sell USDC for ETH
+     * @return amountToSwap The amount of the overweight token to swap
+     */
+    function checkAndComputeSwap(
+        uint256 _idleEth,
+        uint256 _idleUsdc,
+        uint160 sqrtPriceX96
+    ) external pure returns (bool shouldSwap, bool zeroForOne, uint256 amountToSwap) {
+        // convert ETH to USDC-equivalent for ratio check
+        // price = (sqrtPriceX96)^2 / 2^192, then scale for decimals
+        uint256 priceX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+        // ethInUsdc = eth * price * 1e6 / 1e18 (adjust 12 decimals)
+        uint256 ethValueUsdc = (_idleEth * priceX192) / (1 << 192);
+        ethValueUsdc = ethValueUsdc * 1e12; // 18-decimal ETH -> 6-decimal USDC
+
+        uint256 totalValueUsdc = ethValueUsdc + _idleUsdc;
+        if (totalValueUsdc == 0) return (false, false, 0);
+
+        uint256 ethRatioBps = (ethValueUsdc * BPS_DENOM) / totalValueUsdc;
+
+        if (ethRatioBps > SWAP_THRESHOLD_BPS) {
+            // too much ETH, sell ETH for USDC
+            // target: bring ratio to 50%
+            uint256 excessUsdc = ethValueUsdc - (totalValueUsdc / 2);
+            // convert USDC-value back to ETH amount
+            amountToSwap = (excessUsdc * (1 << 192)) / (priceX192 * 1e12);
+            return (true, true, amountToSwap);
+        }
+
+        uint256 usdcRatioBps = (_idleUsdc * BPS_DENOM) / totalValueUsdc;
+        if (usdcRatioBps > SWAP_THRESHOLD_BPS) {
+            // too much USDC, sell USDC for ETH
+            uint256 excessUsdc = _idleUsdc - (totalValueUsdc / 2);
+            amountToSwap = excessUsdc;
+            return (true, false, amountToSwap);
+        }
+
+        return (false, false, 0);
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                             INTERNAL FUNCTIONS                             */
+    /* -------------------------------------------------------------------------- */
+
+    function _slotKey(int24 lower, int24 upper) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(lower, upper));
+    }
+
+    function _alignTick(int24 tick) internal pure returns (int24) {
+        int24 spacing = Config.TICK_SPACING;
+        // floor division toward negative infinity
+        int24 compressed = tick / spacing;
+        if (tick < 0 && tick % spacing != 0) compressed--;
+        return compressed * spacing;
+    }
+
+    function _buildEqualWeights(uint256 n) internal pure returns (uint256[] memory weights) {
+        weights = new uint256[](n);
+        uint256 base = 100 / n;
+        uint256 remainder = 100 - base * n;
+        for (uint256 i = 0; i < n; i++) {
+            weights[i] = base;
+        }
+        // give remainder to the center slot
+        weights[n / 2] += remainder;
+    }
+
     function _mint(
-        PoolKey calldata key,
+        PoolKey memory key,
         int24 tickLower,
         int24 tickUpper,
         uint256 liquidity
@@ -123,22 +335,17 @@ contract PoolInteractor {
             address(this),
             ""
         );
-
         params[1] = abi.encode(address(0), USDC);
-
         params[2] = abi.encode(address(0), address(this));
 
-        uint256 tokenId = Config.positionManager.nextTokenId();
+        uint256 tokenId = positionManager.nextTokenId();
 
-        Config.positionManager.modifyLiquidities{value: address(this).balance}(
+        positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
         );
 
-        Slot memory s = Slot({
-            lowerTick: tickLower,
-            upperTick: tickUpper
-        });
-        SlotToTokenId[s] = tokenId;
+        bytes32 slotKey = _slotKey(tickLower, tickUpper);
+        slotToTokenId[slotKey] = tokenId;
     }
 
     function _increaseLiquidity(
@@ -146,7 +353,7 @@ contract PoolInteractor {
         uint256 liquidity,
         uint128 amount0Max,
         uint128 amount1Max
-    ) internal payable {
+    ) internal {
         bytes memory actions = abi.encodePacked(
             uint8(Actions.INCREASE_LIQUIDITY),
             uint8(Actions.CLOSE_CURRENCY),
@@ -154,108 +361,50 @@ contract PoolInteractor {
             uint8(Actions.SWEEP)
         );
         bytes[] memory params = new bytes[](4);
-
-        // INCREASE_LIQUIDITY params
-        params[0] = abi.encode(
-            tokenId,
-            liquidity,
-            amount0Max,
-            amount1Max,
-            // hook data
-            ""
-        );
-
-        // CLOSE_CURRENCY params
-        // currency 0
-        params[1] = abi.encode(address(0), USDC);
-
-        // CLOSE_CURRENCY params
-        // currency 1
+        params[0] = abi.encode(tokenId, liquidity, amount0Max, amount1Max, "");
+        params[1] = abi.encode(address(0));
         params[2] = abi.encode(USDC);
-
-        // SWEEP params
-        // currency, address to
         params[3] = abi.encode(address(0), address(this));
 
-        Config.positionManager.modifyLiquidities{value: address(this).balance}(
+        positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
         );
     }
 
-/* -------------------------------------------------------------------------- */
-/*                            uttkarsh ke functions                           */
-/* -------------------------------------------------------------------------- */
+    function _decreaseLiquidity(
+        uint256 tokenId,
+        uint128 liquidityToRemove
+    ) internal {
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.DECREASE_LIQUIDITY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.SWEEP)
+        );
+        bytes[] memory params = new bytes[](4);
+        params[0] = abi.encode(tokenId, liquidityToRemove, uint128(0), uint128(0), "");
+        params[1] = abi.encode(address(0));
+        params[2] = abi.encode(USDC);
+        params[3] = abi.encode(address(0), address(this));
 
-    function decideActions(SlotPlan[] calldata plans) internal  returns (SlotDecision[] memory decisions){
-        uint256 newSlotsCount = plans.length;
-        uint256 currentSlotsCount = positionTracker.slotCount();
-
-        decisions = new SlotDecision[](newSlotsCount);
-
-        for (uint256 i = 0 ; i < newSlotsCount ; i++){
-            SlotPlan calldata plan = plans[i];
-            PositionTracker.SlotState memory stored = positionTracker.getSlotState(i);
-
-            SlotDecision memory d;
-            d.tickLower = plan.lowerTick;
-            d.tickUpper = plan.upperTick;
-            d.targetLiq = uint128(plan.liquidityAmount);
-            
-            
-            if(stored.tokenId == 0){
-                d.action = Action.MINT;
-                d.tokenId = 0;
-                d.currentLiq = 0;
-            }
-
-            else if (stored.lowerTick != plan.lowerTick || stored.upperTick != plan.upperTick){
-                d.action = Action.RESTAKE;
-                d.tokenId = stored.tokenId;
-                d.currentLiq = _getCurrentLiquidity(stored.tokenId, stored.lowerTick, stored.upperTick);
-            }
-            else {
-                uint256 current = _getCurrentLiquidity(stored.tokenId, plan.tickLower, plan.tickUpper);
-                d.tokenId    = stored.tokenId;
-                d.currentLiq = current;
-
-                if (current == 0) {
-                    d.action = Action.REACTIVATE;
-                } else if (plan.liquidityAmount > current) {
-                    d.action = Action.INCREASE;
-                } else if (plan.amount < current) {
-                    d.action = Action.DECREASE;
-                } else {
-                    d.action = Action.SKIP;
-                }
-            }
-
-            decisions[i] = d;
-        }
-        for (uint256 i = newSlotsCount; i < currentSlotsCount; i++) {
-            PositionTracker.SlotState memory stored = positionTracker.getSlotState(i);
-            if (!stored.hasLiquidity) continue;
-
-            SlotDecision memory d;
-            d.action     = Action.DECREASE_TO_ZERO;
-            d.tokenId    = stored.tokenId;
-            d.currentLiq = _getCurrentLiquidity(stored.tokenId, stored.tickLower, stored.tickUpper);
-            d.targetLiq  = 0;
-            d.tickLower  = stored.tickLower;
-            d.tickUpper  = stored.tickUpper;
-            decisions[idx++] = d;
-        }
-
+        positionManager.modifyLiquidities{value: address(this).balance}(
+            abi.encode(actions, params), block.timestamp
+        );
     }
 
-    function _getCurrentLiquidity(uint256 tokenId, int256 tickLower, int256 tickUpper) internal view returns (uint128 liquidity){
-        PoolId poolId = poolKey.toId();
-
-        liquidity = poolManager.getPositionLiquidity(
-            poolId,
+    function _getCurrentLiquidity(
+        uint256 tokenId,
+        int24 tickLower,
+        int24 tickUpper
+    ) internal view returns (uint128 liquidity) {
+        (liquidity,,,) = poolManager.getPositionInfo(
+            Config.poolId(),
             address(positionManager),
             tickLower,
             tickUpper,
             bytes32(tokenId)
         );
     }
+
+    receive() external payable {}
 }
