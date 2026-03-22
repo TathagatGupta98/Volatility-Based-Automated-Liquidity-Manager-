@@ -49,8 +49,8 @@ contract PoolInteractor {
         uint256 tokenId;
         uint128 currentLiq;
         uint128 targetLiq;
-        int24   tickLower;
-        int24   tickUpper;
+        int256   tickLower;
+        int256   tickUpper;
 }
 
     SlotPlan[] public slotPlan;
@@ -67,5 +67,56 @@ contract PoolInteractor {
 
     }
 
-    function decideActions(SlotPlan[] calldata plans) internal  returns (SlotDecision[] memory decisions){}
+    function decideActions(SlotPlan[] calldata plans) internal  returns (SlotDecision[] memory decisions){
+        uint256 newSlotsCount = plans.length;
+        uint256 currentSlotsCount = positionTracker.slotCount();
+        uint256 memory orphanslots = 0;
+
+        for (uint256 i = newSlotsCount; i < currentSlotsCount; i++){
+            if(positionTracker.hasLiquidity(i))orphanslots++;
+        }
+
+        decisions = new SlotDecision[](newSlotsCount);
+
+        for (uint256 i = 0 ; i < newSlotsCount ; i++){
+            SlotPlan calldata plan = plans[i];
+            PositionTracker.SlotState memory stored = positionTracker.getSlotState(i);
+
+            SlotDecision memory d;
+            d.tickLower = plan.lowerTick;
+            d.tickUpper = plan.upperTick;
+            d.targetLiq = uint128(plan.liquidityAmount);
+            
+            
+            if(stored.tokenId == 0){
+                d.action = Action.MINT;
+                d.tokenId = 0;
+                d.currentLiq = 0;
+            }
+
+            else if (stored.lowerTick != plan.lowerTick || stored.upperTick != plan.upperTick){
+                d.action = Action.RESTAKE;
+                d.tokenId = stored.tokenId;
+                d.currentLiq = _getCurrentLiquidity(stored.tokenId, stored.lowerTick, stored.upperTick);
+            }
+            else {
+                uint256 current = _getCurrentLiquidity(stored.tokenId, plan.tickLower, plan.tickUpper);
+                d.tokenId    = stored.tokenId;
+                d.currentLiq = current;
+
+                if (current == 0) {
+                    d.action = Action.REACTIVATE;
+                } else if (plan.amount > current) {
+                    d.action = Action.INCREASE;
+                } else if (plan.amount < current) {
+                    d.action = Action.DECREASE;
+                } else {
+                    d.action = Action.SKIP;
+                }
+            }
+
+            decisions[i] = d;
+        }
+
+    }
          
