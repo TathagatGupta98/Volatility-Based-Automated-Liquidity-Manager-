@@ -13,3 +13,6 @@
 [submodule "logic/lib/Permit2"]
 	path = logic/lib/Permit2
 	url = https://github.com/Uniswap/Permit2
+[submodule "logic/lib/chainlink-brownie-contracts"]
+	path = logic/lib/chainlink-brownie-contracts
+	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
