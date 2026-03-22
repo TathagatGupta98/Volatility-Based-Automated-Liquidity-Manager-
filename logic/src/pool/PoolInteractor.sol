@@ -134,6 +134,14 @@ contract PoolInteractor {
     }
 
     function _getCurrentLiquidity(uint256 tokenId, int256 tickLower, int256 tickUpper) internal view returns (uint128 liquidity){
-        
+        PoolId poolId = poolKey.toId();
+
+        liquidity = poolManager.getPositionLiquidity(
+            poolId,
+            address(positionManager),
+            tickLower,
+            tickUpper,
+            bytes32(tokenId)
+        );
     }
 }
