@@ -224,7 +224,9 @@ uint256 internal constant WAD = 1e18;
         uint24 _slotWidthTicks,
         uint256 _ewmaAlpha
     ) {
+        // forge-lint: disable-next-line(unsafe-typecast)
         if (_slotWidthTicks == 0 || int24(_slotWidthTicks) % _poolKey.tickSpacing != 0)
+            // forge-lint: disable-next-line(unsafe-typecast)
             revert InvalidTickSpacing(int24(_slotWidthTicks), _poolKey.tickSpacing);
 
         if (_ewmaAlpha == 0 || _ewmaAlpha >= WAD)

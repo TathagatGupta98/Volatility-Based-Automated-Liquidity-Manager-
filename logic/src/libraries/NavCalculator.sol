@@ -2,33 +2,19 @@
 pragma solidity ^0.8.30;
 
 /* --------------------------------- import --------------------------------- */
-import {VaultStorage} from "./VaultStorage.sol";
+import {VaultStorage} from "../core/VaultStorage.sol";
 import {Config} from "../helpers/config.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {FixedPoint128} from "v4-core/src/libraries/FixedPoint128.sol";
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "v4-core/src/types/PoolId.sol";
 
-contract NavCalculator is VaultStorage {
+abstract contract NavCalculator is VaultStorage {
 
     using StateLibrary for IPoolManager;
-
-/* ------------------------------- constructor ------------------------------ */
-    /**
-     * @notice Initializes `NavCalculator` by forwarding configuration to `VaultStorage`.
-     */
-    constructor() VaultStorage(
-        Config.POOL_MANAGER_ADDRESS,
-        Config.POSITION_MANAGER_ADDRESS,
-        Config.PERMIT2_ADDRESS,
-        Config.USDC_ADDRESS,
-        Config.poolKey(),
-        Config.TICK_SPACING * 10,
-        6e17
-    ) {}
 
 /* -------------------------------------------------------------------------- */
 /*                                  functions                                 */
@@ -56,15 +42,22 @@ contract NavCalculator is VaultStorage {
         uint160 sqrtPriceX96,
         int24 tickLower,
         int24 tickUpper
-    ) internal view returns (uint256 amount0, uint256 amount1) {
+    ) internal pure returns (uint256 amount0, uint256 amount1) {
         uint160 sqrtPriceLower = TickMath.getSqrtPriceAtTick(tickLower);
         uint160 sqrtPriceUpper = TickMath.getSqrtPriceAtTick(tickUpper);
-        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(sqrtPriceX96, sqrtPriceLower, sqrtPriceUpper, liquidity);
+
+        if (sqrtPriceX96 <= sqrtPriceLower) {
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtPriceLower, sqrtPriceUpper, liquidity, true);
+        } else if (sqrtPriceX96 < sqrtPriceUpper) {
+            amount0 = SqrtPriceMath.getAmount0Delta(sqrtPriceX96, sqrtPriceUpper, liquidity, true);
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtPriceLower, sqrtPriceX96, liquidity, true);
+        } else {
+            amount1 = SqrtPriceMath.getAmount1Delta(sqrtPriceLower, sqrtPriceUpper, liquidity, true);
+        }
     }
     
     /**
      * @notice Calculates uncollected fees for a position.
-     * @param tokenId Position identifier.
      * @param tickLower Lower tick.
      * @param tickUpper Upper tick.
      * @param liquidity Position liquidity.
@@ -78,48 +71,30 @@ contract NavCalculator is VaultStorage {
         int24 currentTick
     ) internal view returns (uint256 feeAmount0, uint256 feeAmount1) {
         if (liquidity == 0) return (0, 0);
+        currentTick;
+
         PoolId poolId = Config.poolId();
-        (uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128) = poolManager.getPoolFeeGrowthGlobal(poolId);
-        (uint256 feeGrowthOutsideLower0X128, uint256 feeGrowthOutsideLower1X128) = poolManager.getTickFeeGrowthOutside(poolId, tickLower);
-        (uint256 feeGrowthOutsideUpper0X128, uint256 feeGrowthOutsideUpper1X128) = poolManager.getTickFeeGrowthOutside(poolId, tickUpper);
-        ( , uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128 ) = poolManager.getPositionInfo(
-            poolId,
-            address(this),
-            tickLower,
-            tickUpper,
-            bytes32(0)
-        );
-        uint256 feeGrowthBelow0X128;
-        uint256 feeGrowthBelow1X128;
-        uint256 feeGrowthAbove0X128;
-        uint256 feeGrowthAbove1X128;
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) =
+            poolManager.getPositionInfo(poolId, address(this), tickLower, tickUpper, bytes32(0));
+        (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
+            poolManager.getFeeGrowthInside(poolId, tickLower, tickUpper);
+
         unchecked {
-            if (currentTick >= tickLower) {
-                feeGrowthBelow0X128 = feeGrowthOutsideLower0X128;
-                feeGrowthBelow1X128 = feeGrowthOutsideLower1X128;
-            } else {
-                feeGrowthBelow0X128 = feeGrowthGlobal0X128 - feeGrowthOutsideLower0X128;
-                feeGrowthBelow1X128 = feeGrowthGlobal1X128 - feeGrowthOutsideLower1X128;
+            if (feeGrowthInside0X128 > feeGrowthInside0LastX128) {
+                feeAmount0 = FullMath.mulDiv(
+                    liquidity,
+                    feeGrowthInside0X128 - feeGrowthInside0LastX128,
+                    FixedPoint128.Q128
+                );
             }
-            if (currentTick < tickUpper) {
-                feeGrowthAbove0X128 = feeGrowthOutsideUpper0X128;
-                feeGrowthAbove1X128 = feeGrowthOutsideUpper1X128;
-            } else {
-                feeGrowthAbove0X128 = feeGrowthGlobal0X128 - feeGrowthOutsideUpper0X128;
-                feeGrowthAbove1X128 = feeGrowthGlobal1X128 - feeGrowthOutsideUpper1X128;
+
+            if (feeGrowthInside1X128 > feeGrowthInside1LastX128) {
+                feeAmount1 = FullMath.mulDiv(
+                    liquidity,
+                    feeGrowthInside1X128 - feeGrowthInside1LastX128,
+                    FixedPoint128.Q128
+                );
             }
-            uint256 feeGrowthInside0X128 = feeGrowthGlobal0X128 - feeGrowthBelow0X128 - feeGrowthAbove0X128;
-            uint256 feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
-            feeAmount0 = FullMath.mulDiv(
-                liquidity,
-                feeGrowthInside0X128 - feeGrowthInside0LastX128,
-                FixedPoint128.Q128
-            );
-            feeAmount1 = FullMath.mulDiv(
-                liquidity,
-                feeGrowthInside1X128 - feeGrowthInside1LastX128,
-                FixedPoint128.Q128
-            );
         }
     }
 

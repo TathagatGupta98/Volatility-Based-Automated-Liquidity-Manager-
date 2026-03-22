@@ -8,6 +8,7 @@ pragma solidity ^0.8.30;
  */
 
 import {Volatility} from "./volatility_calc/volatility.sol";
+import {Config} from "./helpers/config.sol";
 
 interface AutomationCompatibleInterface {
     function checkUpkeep(bytes calldata checkData)
@@ -19,11 +20,21 @@ interface AutomationCompatibleInterface {
 
 interface IPoolInteractorVolatility {
     function setVolatilityIndex(uint8 newVolatilityIndex) external;
+    function setVolatilityUpdater(address updater) external;
     function rebalance(uint256 totalLiquidityAvailable, uint256 _volatilityIndex) external;
     function needsTickDriftRebalance() external view returns (bool);
     function owner() external view returns (address);
     function volatilityUpdater() external view returns (address);
     function volatilityIndex() external view returns (uint8);
+}
+
+interface IDepositManager {
+    function deposit(uint256 usdcAmount) external payable;
+    function withdraw(uint256 sharesToBurn) external;
+}
+
+interface IPositionTrackerReader {
+    function slotCount() external view returns (uint256);
 }
 
 contract VaultIntegration is AutomationCompatibleInterface, Volatility {
@@ -32,6 +43,9 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
     error NotAuthorized();
     error PoolInteractorNotSet();
     error InvalidOwnerAddress();
+    error DepositManagerNotSet();
+    error PositionTrackerNotSet();
+    error DirectVaultCallRequired(address target);
 /* -------------------------------------------------------------------------- */
 /*                               state variables                              */
 /* -------------------------------------------------------------------------- */
@@ -40,6 +54,8 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
     uint8 public lastVolatilityIndex;
     address public owner;
     IPoolInteractorVolatility public poolInteractor;
+    IDepositManager public depositManager;
+    IPositionTrackerReader public positionTracker;
     uint256 public rebalanceLiquidity;
     bool public autoRebalanceEnabled = true;
     bool public driftRebalanceEnabled = true;
@@ -57,6 +73,33 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
 
     function setPoolInteractor(address poolInteractorAddress) external onlyOwner {
         poolInteractor = IPoolInteractorVolatility(poolInteractorAddress);
+    }
+
+    function setDepositManager(address depositManagerAddress) external onlyOwner {
+        depositManager = IDepositManager(depositManagerAddress);
+    }
+
+    function setPositionTracker(address positionTrackerAddress) external onlyOwner {
+        positionTracker = IPositionTrackerReader(positionTrackerAddress);
+    }
+
+    function configureModules(
+        address poolInteractorAddress,
+        address depositManagerAddress,
+        address positionTrackerAddress,
+        uint256 rebalanceLiquidityAmount,
+        uint256 upkeepInterval
+    ) external onlyOwner {
+        poolInteractor = IPoolInteractorVolatility(poolInteractorAddress);
+        depositManager = IDepositManager(depositManagerAddress);
+        positionTracker = IPositionTrackerReader(positionTrackerAddress);
+        rebalanceLiquidity = rebalanceLiquidityAmount;
+        interval = upkeepInterval;
+    }
+
+    function setSelfAsPoolUpdater() external onlyOwner {
+        if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
+        poolInteractor.setVolatilityUpdater(address(this));
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
@@ -78,6 +121,92 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
 
     function setDriftRebalanceEnabled(bool enabled) external onlyOwner {
         driftRebalanceEnabled = enabled;
+    }
+
+    function getProtocolCoreAddresses()
+        external
+        pure
+        returns (
+            address poolManagerAddress,
+            address positionManagerAddress,
+            address permit2Address,
+            address usdcAddress
+        )
+    {
+        poolManagerAddress = Config.POOL_MANAGER_ADDRESS;
+        positionManagerAddress = Config.POSITION_MANAGER_ADDRESS;
+        permit2Address = Config.PERMIT2_ADDRESS;
+        usdcAddress = Config.USDC_ADDRESS;
+    }
+
+    function getModuleAddresses()
+        external
+        view
+        returns (address poolInteractorAddress, address depositManagerAddress, address positionTrackerAddress)
+    {
+        poolInteractorAddress = address(poolInteractor);
+        depositManagerAddress = address(depositManager);
+        positionTrackerAddress = address(positionTracker);
+    }
+
+    function getUserInteractionTargets() external view returns (address vaultDepositTarget, address vaultWithdrawTarget) {
+        vaultDepositTarget = address(depositManager);
+        vaultWithdrawTarget = address(depositManager);
+    }
+
+    function getVolatilitySnapshot()
+        external
+        view
+        returns (
+            uint8 currentVolatilityIndex,
+            uint256 currentVolatilityValue,
+            uint8 lowIndex,
+            uint8 mediumIndex,
+            uint8 highIndex
+        )
+    {
+        currentVolatilityIndex = getVolatilityIndex();
+        currentVolatilityValue = getVolatilityValue();
+        lowIndex = uint8(Config.LOW_VOLATILITY);
+        mediumIndex = uint8(Config.MEDIUM_VOLATILITY);
+        highIndex = uint8(Config.HIGH_VOLATILITY);
+    }
+
+    function getEngineReadiness()
+        external
+        view
+        returns (
+            bool isReady,
+            bool hasPoolInteractor,
+            bool hasDepositManager,
+            bool hasPositionTracker,
+            bool hasRebalanceLiquidity,
+            bool poolOwnerSetToVault,
+            bool updaterSetToVault,
+            uint256 trackerSlotCount
+        )
+    {
+        hasPoolInteractor = address(poolInteractor) != address(0);
+        hasDepositManager = address(depositManager) != address(0);
+        hasPositionTracker = address(positionTracker) != address(0);
+        hasRebalanceLiquidity = rebalanceLiquidity > 0;
+
+        if (hasPoolInteractor) {
+            poolOwnerSetToVault = poolInteractor.owner() == address(this);
+            updaterSetToVault = poolInteractor.volatilityUpdater() == address(this);
+        }
+
+        if (hasPositionTracker) {
+            trackerSlotCount = positionTracker.slotCount();
+        }
+
+        isReady =
+            hasPoolInteractor &&
+            hasDepositManager &&
+            hasPositionTracker &&
+            hasRebalanceLiquidity &&
+            poolOwnerSetToVault &&
+            updaterSetToVault;
     }
 
     function syncVolatilityIndex() public returns (uint8 currentVolatilityIndex, uint256 currentVolatilityValue) {
@@ -142,6 +271,23 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
 
     function pushVolatilityIndexOnly() external onlyOwner returns (uint8 currentVolatilityIndex, uint256 currentVolatilityValue) {
         return syncVolatilityIndex();
+    }
+
+    function previewShouldRebalanceNow() external view returns (bool shouldRebalance, bool driftNeedsRebalance) {
+        if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
+        driftNeedsRebalance = driftRebalanceEnabled && poolInteractor.needsTickDriftRebalance();
+        bool indexChanged = getVolatilityIndex() != lastVolatilityIndex;
+        shouldRebalance = (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
+    }
+
+    function userDeposit(uint256) external payable {
+        if (address(depositManager) == address(0)) revert DepositManagerNotSet();
+        revert DirectVaultCallRequired(address(depositManager));
+    }
+
+    function userWithdraw(uint256) external view {
+        if (address(depositManager) == address(0)) revert DepositManagerNotSet();
+        revert DirectVaultCallRequired(address(depositManager));
     }
 
     function executeEngineCycle() external {

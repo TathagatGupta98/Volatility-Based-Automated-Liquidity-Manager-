@@ -24,16 +24,18 @@
 pragma solidity ^0.8.30;
 
 /* --------------------------------- imports -------------------------------- */
-import {NavCalculator} from "./NavCalculator.sol";
+import {NavCalculator} from "../libraries/NavCalculator.sol";
 import {ShareAccounting} from "./ShareAccounting.sol";
 import {VaultStorage} from "./VaultStorage.sol";
 import {Config} from "../helpers/config.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 
 /* ------------------------------- constructor ------------------------------ */
 contract DepositManager is ShareAccounting, NavCalculator{
+    using SafeCast for uint256;
     /**
      * @notice Deploys `DepositManager` and forwards configuration to `VaultStorage`.
      */
@@ -43,7 +45,7 @@ contract DepositManager is ShareAccounting, NavCalculator{
         Config.PERMIT2_ADDRESS,              
         Config.USDC_ADDRESS,
         Config.poolKey(),
-        Config.TICK_SPACING * 10,     
+        uint24(Config.TICK_SPACING) * 10,
         6e17                          
     ) {}
 
@@ -70,13 +72,13 @@ contract DepositManager is ShareAccounting, NavCalculator{
         uint256 depositValueUsdc = computeDepositValueUsdc(msg.value, usdcAmount);
         validateDeposit(msg.value, usdcAmount, depositValueUsdc);
 
-        (uint256 preTotalEth, uint256 preTotalUsdc, uint256 preNavUsdc) = computeNav();
+        (, , uint256 preNavUsdc) = computeNav();
 
         if (usdcAmount > 0) {
             permit2.transferFrom(
                 msg.sender,
                 address(this),
-                uint160(usdcAmount),
+                usdcAmount.toUint160(),
                 USDC
             );
         }

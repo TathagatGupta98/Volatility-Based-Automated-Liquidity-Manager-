@@ -16,6 +16,7 @@ import {DistributionMath} from "../libraries/DistributionMath.sol";
 import {Config} from "../helpers/config.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
 contract PoolInteractor is IUnlockCallback {
     using SafeERC20     for IERC20;
@@ -121,7 +122,11 @@ contract PoolInteractor is IUnlockCallback {
             revert RebalanceTooSoon();
         }
 
-        volatilityIndex = _volatilityIndex;
+        if (_volatilityIndex < 1 || _volatilityIndex > 3) {
+            revert InvalidVolatilityIndex();
+        }
+        // forge-lint: disable-next-line(unsafe-typecast)
+        volatilityIndex = uint8(_volatilityIndex);
 
         // --- Step 0: rebalance idle buffer if token ratio is skewed ---
         _rebalanceIdleBuffer();
@@ -148,6 +153,7 @@ contract PoolInteractor is IUnlockCallback {
         SlotDecision[] memory decisions = new SlotDecision[](numSlots);
 
         for (uint256 i = 0; i < numSlots; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast)
             int24 offset    = int24(int256(i)) - int24(int256(numSlots - 1) / 2);
             int24 tickLower = currentLowerTick + offset * Config.TICK_SPACING;
             int24 tickUpper = tickLower + Config.TICK_SPACING;
@@ -377,7 +383,7 @@ contract PoolInteractor is IUnlockCallback {
             SwapCallbackData memory swapData = abi.decode(_pendingSwapData, (SwapCallbackData));
             delete _pendingSwapData;
             
-            IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            SwapParams memory params = SwapParams({
                 zeroForOne: swapData.zeroForOne,
                 amountSpecified: -int256(swapData.amountIn), // exact input (negative = exact input)
                 sqrtPriceLimitX96: swapData.zeroForOne 
@@ -468,7 +474,7 @@ contract PoolInteractor is IUnlockCallback {
         uint256 tokenId = positionManager.nextTokenId();
 
         // Approve USDC to positionManager before minting
-        IERC20(USDC).safeApprove(address(positionManager), type(uint256).max);
+        IERC20(USDC).forceApprove(address(positionManager), type(uint256).max);
 
         positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
@@ -498,7 +504,7 @@ contract PoolInteractor is IUnlockCallback {
         params[3] = abi.encode(address(0), address(this));
         params[4] = abi.encode(USDC, address(this));
 
-        IERC20(USDC).safeApprove(address(positionManager), type(uint256).max);
+        IERC20(USDC).forceApprove(address(positionManager), type(uint256).max);
 
         positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp

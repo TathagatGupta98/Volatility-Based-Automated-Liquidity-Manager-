@@ -41,8 +41,8 @@ contract PositionTracker {
         });
     }
     // @dev called when we make liquidity holding of a position inactive or active
-    function setHasLiquidity(uint256 slotIndex, bool hasLiquidity) public onlyPoolInteractor {
-        slots[slotIndex].isActive = hasLiquidity;
+    function setHasLiquidity(uint256 slotIndex, bool hasLiquidityFlag) public onlyPoolInteractor {
+        slots[slotIndex].isActive = hasLiquidityFlag;
     }
 
     // @dev volatility index changes and we need to change the slot count accordingly

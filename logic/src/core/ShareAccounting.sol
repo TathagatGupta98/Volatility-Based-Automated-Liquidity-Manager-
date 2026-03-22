@@ -29,29 +29,14 @@ import {Config} from "../helpers/config.sol";
 import {PoolId} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 /* -------------------------------------------------------------------------- */
 /*                                  contract                                  */
 /* -------------------------------------------------------------------------- */
-contract ShareAccounting is VaultStorage{
+abstract contract ShareAccounting is VaultStorage{
 
     using StateLibrary for IPoolManager;
-
-/* ------------------------------- constructor ------------------------------ */
-    /**
-     * @notice Initializes the `ShareAccounting` contract by forwarding constants to `VaultStorage`.
-     * @dev Constructor sets up pool manager, position manager, permit2 and addresses used by the vault.
-     */
-    constructor() VaultStorage(
-        Config.POOL_MANAGER_ADDRESS,
-        Config.POSITION_MANAGER_ADDRESS,
-        Config.PERMIT2_ADDRESS,              
-        Config.USDC_ADDRESS,
-        Config.poolKey(),
-        Config.TICK_SPACING * 10,     // slotWidthTicks — 10 tick spacings per slot
-        6e17                          // ewmaAlpha — 0.6 in WAD, moderately reactive
-    ) {}
-
 
     /**
      * @notice Returns the current ETH/USDC price from the pool slot0 observation.

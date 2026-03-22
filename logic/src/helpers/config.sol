@@ -11,11 +11,11 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 library Config {
     using PoolIdLibrary for PoolKey;
 
-    uint256 public constant HIGH_VOLATILITY = 3;
+    uint8 public constant HIGH_VOLATILITY = 3;
 
-    uint256 public constant LOW_VOLATILITY = 1;
+    uint8 public constant LOW_VOLATILITY = 1;
 
-    uint256 public constant MEDIUM_VOLATILITY = 2;
+    uint8 public constant MEDIUM_VOLATILITY = 2;
 
     uint256 public constant LN_10001_SCALED = 99995000499987500;
 
@@ -65,5 +65,5 @@ library Config {
         return poolKey().toId();
     }
 
-    uint8 public constant DEFAULT_VOLATILITY_INDEX = uint8(LOW_VOLATILITY);
+    uint8 public constant DEFAULT_VOLATILITY_INDEX = LOW_VOLATILITY;
 }

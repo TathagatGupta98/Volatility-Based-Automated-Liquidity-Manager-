@@ -2,8 +2,10 @@
 pragma solidity ^0.8.30;
 
 import {DistributionMath} from "../libraries/DistributionMath.sol";
+import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 
 contract LiquidityDistributor {
+    using SafeCast for uint256;
     error LiquidityMustBeGreaterThanZero();
     error VolatilityIndexMustBeGreaterThanZero();
     error CurrentTickOutOfBounds();
@@ -13,6 +15,7 @@ contract LiquidityDistributor {
     uint256 public volatilityIndex;
     int256 private currentLowerTick;
     uint256 public constant TICKSPACING = 60 ; //ETH-USDC POOL
+    int256 public constant TICKSPACING_I = 60;
     int256 public constant MAX_TICK = 887272;
     int256 public constant MIN_TICK = -887272; 
     uint256[] public weight;
@@ -56,13 +59,18 @@ contract LiquidityDistributor {
             weight
         );
 
-        currentLowerTick = getCurrentLowerTick(int256(currentTick));
+        currentLowerTick = getCurrentLowerTick(currentTick);
         delete slotPlan;
 
+        int256 centerIndex = (numberOfSlots.toInt256() - 1) / 2;
+
         for (uint256 i = 0; i < numberOfSlots; i++) {
+            int256 offset = i.toInt256() - centerIndex;
             slotPlan.push(SlotPlan({
-            lowerTick: int256(currentLowerTick + (int256((int256(i) - (int256(numberOfSlots) - 1) / 2) * int256(TICKSPACING)))),
-            upperTick: int256(currentLowerTick + (int256((int256(i) - (int256(numberOfSlots) - 1) / 2 + 1) * int256(TICKSPACING)))),
+            // forge-lint: disable-next-line(unsafe-typecast)
+            lowerTick: int256(currentLowerTick + (offset * TICKSPACING_I)),
+            // forge-lint: disable-next-line(unsafe-typecast)
+            upperTick: int256(currentLowerTick + ((offset + 1) * TICKSPACING_I)),
             liquidityAmount: liquidityDistribution[i]
         }));
         }
@@ -74,7 +82,7 @@ contract LiquidityDistributor {
      * @dev Calculates the current lower tick based on the current tick and tick spacing.
      */
     function getCurrentLowerTick(int256 _currentTick) internal pure returns (int256) {
-        return (_currentTick - (_currentTick % int256(TICKSPACING)));
+        return (_currentTick - (_currentTick % TICKSPACING_I));
     }
 
 
@@ -85,7 +93,7 @@ contract LiquidityDistributor {
      */
     function distributeWeights(
         uint256 _volatilityIndex
-    ) internal returns (uint256 n) {
+    ) internal pure returns (uint256 n) {
         n = 3 + (_volatilityIndex - 1) * 2;
     }
 }

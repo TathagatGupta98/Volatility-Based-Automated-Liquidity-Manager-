@@ -40,7 +40,7 @@ contract Volatility {
         lastObservationTimestamp = uint32(block.timestamp);
         lastObservationBlock = block.number;
         ewmaVariance = 0;
-        volatilityIndex = uint8(Config.LOW_VOLATILITY);
+        volatilityIndex = Config.LOW_VOLATILITY;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -106,6 +106,7 @@ contract Volatility {
 
     function _calculateEwmaVariance(int24 delta) internal {
         int256 delta256 = int256(delta);
+        // forge-lint: disable-next-line(unsafe-typecast)
         uint256 returnSquareScaled = uint256(delta256 * delta256) * Config.LNSQ_1E18;
         ewmaVariance =
             Config.LAMBDA *
@@ -121,11 +122,11 @@ contract Volatility {
 
     function _updateVolatilityIndexValue(uint256 volatility) internal {
         if (volatility < 2000000000000000) {
-            volatilityIndex = uint8(Config.LOW_VOLATILITY);
+            volatilityIndex = Config.LOW_VOLATILITY;
         } else if (volatility >= 2000000000000000 && volatility < 7000000000000000) {
-            volatilityIndex = uint8(Config.MEDIUM_VOLATILITY);
+            volatilityIndex = Config.MEDIUM_VOLATILITY;
         } else {
-            volatilityIndex = uint8(Config.HIGH_VOLATILITY);
+            volatilityIndex = Config.HIGH_VOLATILITY;
         }
     }
 
