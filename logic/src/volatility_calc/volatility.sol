@@ -16,6 +16,7 @@ import {Config} from "../helpers/config.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 contract Volatility {
+    using StateLibrary for IPoolManager;
     /* -------------------------------------------------------------------------- */
     /*                                   errors                                   */
     /* -------------------------------------------------------------------------- */
