@@ -8,15 +8,19 @@ pragma solidity ^0.8.30;
  */
 
 import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
+import {Config} from "./helpers/config.sol";
+import {Volatility} from "./volatility_calc/volatility.sol";
 
-contract VaultIntegration is AutomationCompatibleInterface {
+contract VaultIntegration is AutomationCompatibleInterface, Volatility {
 /* --------------------------------- errors --------------------------------- */
     error VeryFrequentUpkeep();
-    uint public counter;
+/* -------------------------------------------------------------------------- */
+/*                               state variables                              */
+/* -------------------------------------------------------------------------- */
     uint public lastTimestamp;
-    uint public interval = 60; // seconds
+    uint public interval = 300; 
 /* ------------------------------- constructor ------------------------------ */
-    constructor() {
+    constructor() Volatility(){
         lastTimestamp = block.timestamp;
     }
 /* ------------------------------- checkUpKeep ------------------------------ */
@@ -27,13 +31,12 @@ contract VaultIntegration is AutomationCompatibleInterface {
         returns (bool upkeepNeeded, bytes memory performData)
     {
         upkeepNeeded = (block.timestamp - lastTimestamp) >= interval;
-        performData = ""; 
     }
 /* ------------------------------ performUpKeep ----------------------------- */
-    function performUpkeep(bytes calldata performData) external override {
+    function performUpkeep() external override {
         if ((block.timestamp - lastTimestamp) >= interval) {
             lastTimestamp = block.timestamp;
-            counter++;
+            calculateEWMA();
         }
         else {
             revert VeryFrequentUpkeep();
