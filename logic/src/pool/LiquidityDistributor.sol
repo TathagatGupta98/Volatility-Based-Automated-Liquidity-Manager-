@@ -27,11 +27,19 @@ contract LiquidityDistributor {
         volatilityIndex = _volatilityIndex;
     }
 
+    /**
+     * @dev Computes the distribution of liquidity across tick ranges based on the current tick and volatility index.
+     * @dev calculates the number of slots to distribute liquidity into based on the volatility index, distributes the total liquidity according to predefined weights, 
+     *       and computes the lower and upper ticks for each slot. The resulting slot plan includes the tick ranges and corresponding liquidity amounts for each slot.
+     */
     function computeDistribution () public returns (SlotPlan[] memory) {
         uint256 numberOfSlots = distributeWeights(volatilityIndex);
+
         liquidityDistribution = new uint256[](numberOfSlots);
         liquidityDistribution = DistributionMath.Distribute(totalLiquidity, weight);
+
         currentLowerTick = computeCurrentLowerTick(currentTick);
+
         slotPlan = new SlotPlan[](numberOfSlots);
         for ( uint256 i=0 ; i < numberOfSlots ; i++){
             slotPlan[i].lowerTick = int24(currentLowerTick + (i - (numberOfSlots -1)/2)*TICKSPACING);
@@ -41,4 +49,14 @@ contract LiquidityDistributor {
 
         return slotPlan;
     }
+
+    /**
+     * @dev calculate the number of slots to distribute liquidity into based on the volatility index. and initializes the weight array accordingly.
+     * @param _volatilityIndex The current volatility index
+     * @return n The number of slots to distribute liquidity into
+     */
+    function distributeWeights(uint256 _volatilityIndex) internal returns (uint256) {
+        uint256 n = 3 + (_volatilityIndex - 1) * 2;
+        weight = new uint256[](n);
+        return n;
 }
