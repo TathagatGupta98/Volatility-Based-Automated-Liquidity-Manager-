@@ -85,10 +85,7 @@ contract LiquidityDistributor {
      */
     function distributeWeights(
         uint256 _volatilityIndex
-    ) internal returns (uint256) {
-        uint256 n = 3 + (_volatilityIndex - 1) * 2;
-        weight = new uint256[](n);
-        return n;
+    ) internal returns (uint256 n) {
+        n = 3 + (_volatilityIndex - 1) * 2;
     }
-
 }

@@ -12,6 +12,7 @@ import {IERC20}    from "../../lib/v4-core/lib/openzeppelincontracts/contracts/t
 import {SafeERC20} from "../../lib/v4-core/lib/openzeppelincontracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PositionTracker} from "./PositionTracker.sol";
 import {liquidityDistributor} from "./LiquidityDistributor.sol";
+import {NavCalculator} from "../libraries/NavCalculator.sol";
 
 contract PoolInteractor {
     using SafeERC20     for IERC20;
@@ -26,7 +27,17 @@ contract PoolInteractor {
     address public immutable token0;
     address public immutable token1;
 
-    PoolKey public poolKey;
+    Poolkey internal immutable poolKey = Config.poolKey();
+    PoolId internal immutable poolId = Config.poolId();
+
+    struct Slot {
+        int256 lowerTick;
+        int256 upperTick;
+    }
+
+    Slot[] public targetSlots;
+
+    mapping (Slot => uint256) public SlotToTokenId;
 
     struct SlotPlan{
         int256 lowerTick;
@@ -55,26 +66,129 @@ contract PoolInteractor {
 
     SlotPlan[] public slotPlan;
 
+/* -------------------------------------------------------------------------- */
+/*                             Aradhya's functions                            */
+/* -------------------------------------------------------------------------- */
 
-    function rebalance(SlotPlan[] calldata plans ) external {
+    function checkLiquiditySlotsAndHasMintTokenId() public view returns(){
+        (, int24 currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
-        //checkv2approval
+        currentTickLowerBound = (currentTick / Config.TICK_SPACING) * Config.TICK_SPACING;
 
-        //snapshot of the next tokenId
-        uint256 mintNextTokenId = positionManager.nextTokenId();
-
-        SlotDecision[] memory decisions= decideActions(plans);
-
+        uint8 volatilityIndex = Config.volatility_index;
+        if (volatilityIndex == Config.HIGH_VOLATILITY) {
+            uint8 numOfSlots = 7;
+        }
+        else if (volatilityIndex == Config.MEDIUM_VOLATILITY) {
+            uint8 numOfSlots = 5;
+        }
+        else {
+            uint8 numOfSlots = 3;
+        }
+        targetSlots = new Slot[](numOfSlots);
+        for (uint256 i = 0; i < numOfSlots; i++) {
+            targetSlots[i] = Slot({
+                lowerTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2) * int256(Config.TICK_SPACING)))),
+                upperTick: int256(currentTickLowerBound + (int256((int256(i) - (int256(numOfSlots) - 1) / 2 + 1) * int256(Config.TICK_SPACING))))
+            });
+            if (SlotToTokenId[targetSlots[i]] == 0) {
+                _mint(poolKey, int24(targetSlots[i].lowerTick), int24(targetSlots[i].upperTick), 0);
+            }
+        }
     }
+
+    
+/* -------------------------------------------------------------------------- */
+/*                             internal functions                             */
+/* -------------------------------------------------------------------------- */
+    function _mint(
+        PoolKey calldata key,
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 liquidity
+    ) internal {
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.MINT_POSITION),
+            uint8(Actions.SETTLE_PAIR),
+            uint8(Actions.SWEEP)
+        );
+        bytes[] memory params = new bytes[](3);
+        params[0] = abi.encode(
+            key,
+            tickLower,
+            tickUpper,
+            liquidity,
+            type(uint128).max,
+            type(uint128).max,
+            address(this),
+            ""
+        );
+
+        params[1] = abi.encode(address(0), USDC);
+
+        params[2] = abi.encode(address(0), address(this));
+
+        uint256 tokenId = Config.positionManager.nextTokenId();
+
+        Config.positionManager.modifyLiquidities{value: address(this).balance}(
+            abi.encode(actions, params), block.timestamp
+        );
+
+        Slot memory s = Slot({
+            lowerTick: tickLower,
+            upperTick: tickUpper
+        });
+        SlotToTokenId[s] = tokenId;
+    }
+
+    function _increaseLiquidity(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint128 amount0Max,
+        uint128 amount1Max
+    ) internal payable {
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.INCREASE_LIQUIDITY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.SWEEP)
+        );
+        bytes[] memory params = new bytes[](4);
+
+        // INCREASE_LIQUIDITY params
+        params[0] = abi.encode(
+            tokenId,
+            liquidity,
+            amount0Max,
+            amount1Max,
+            // hook data
+            ""
+        );
+
+        // CLOSE_CURRENCY params
+        // currency 0
+        params[1] = abi.encode(address(0), USDC);
+
+        // CLOSE_CURRENCY params
+        // currency 1
+        params[2] = abi.encode(USDC);
+
+        // SWEEP params
+        // currency, address to
+        params[3] = abi.encode(address(0), address(this));
+
+        Config.positionManager.modifyLiquidities{value: address(this).balance}(
+            abi.encode(actions, params), block.timestamp
+        );
+    }
+
+/* -------------------------------------------------------------------------- */
+/*                            uttkarsh ke functions                           */
+/* -------------------------------------------------------------------------- */
 
     function decideActions(SlotPlan[] calldata plans) internal  returns (SlotDecision[] memory decisions){
         uint256 newSlotsCount = plans.length;
         uint256 currentSlotsCount = positionTracker.slotCount();
-        uint256 memory orphanslots = 0;
-
-        for (uint256 i = newSlotsCount; i < currentSlotsCount; i++){
-            if(positionTracker.hasLiquidity(i))orphanslots++;
-        }
 
         decisions = new SlotDecision[](newSlotsCount);
 
@@ -106,7 +220,7 @@ contract PoolInteractor {
 
                 if (current == 0) {
                     d.action = Action.REACTIVATE;
-                } else if (plan.amount > current) {
+                } else if (plan.liquidityAmount > current) {
                     d.action = Action.INCREASE;
                 } else if (plan.amount < current) {
                     d.action = Action.DECREASE;

@@ -26,9 +26,11 @@ contract Volatility {
     /*                                  constants                                 */
     /* -------------------------------------------------------------------------- */
     uint256 ewmaVariance = 0;
+    uint256 volatilityCalculated;
     int24 lastTick;
     uint32 lastObservationTimestamp;
     uint256 lastObservationBlock;
+    uint8 volatilityIndex;
 
     /* ------------------------------- constructur ------------------------------ */
     constructor() {
@@ -38,6 +40,7 @@ contract Volatility {
         lastObservationTimestamp = uint32(block.timestamp);
         lastObservationBlock = block.number;
         ewmaVariance = 0;
+        volatilityIndex = uint8(Config.LOW_VOLATILITY);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -65,13 +68,21 @@ contract Volatility {
 
         _calculateEwmaVariance(delta);
 
-        volatility_calculated = _calculateVolatility();
+        volatilityCalculated = _calculateVolatility();
 
-        _updateVolatilityIndexValue(volatility_calculated);
+        _updateVolatilityIndexValue(volatilityCalculated);
 
         lastTick = m_currentTick;
         lastObservationTimestamp = m_currentTimestamp;
         lastObservationBlock = m_currentBlock;
+    }
+
+    function getVolatilityIndex() public view returns (uint8) {
+        return volatilityIndex;
+    }
+
+    function getVolatilityValue() public view returns (uint256) {
+        return volatilityCalculated;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -105,16 +116,26 @@ contract Volatility {
     }
 
     function _calculateVolatility() internal view returns (uint256 volatility) {
-        return sqrt(ewmaVariance)*1e9;
+        return _sqrt(ewmaVariance) * 1e9;
     }
 
     function _updateVolatilityIndexValue(uint256 volatility) internal {
         if (volatility < 2000000000000000) {
-            Config.volatility_index = Config.LOW_VOLATILITY;
+            volatilityIndex = uint8(Config.LOW_VOLATILITY);
         } else if (volatility >= 2000000000000000 && volatility < 7000000000000000) {
-            Config.volatility_index = Config.MEDIUM_VOLATILITY;
+            volatilityIndex = uint8(Config.MEDIUM_VOLATILITY);
         } else {
-            Config.volatility_index = Config.HIGH_VOLATILITY;
+            volatilityIndex = uint8(Config.HIGH_VOLATILITY);
+        }
+    }
+
+    function _sqrt(uint256 x) internal pure returns (uint256 y) {
+        if (x == 0) return 0;
+        uint256 z = (x + 1) / 2;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
         }
     }
 }

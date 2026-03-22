@@ -33,13 +33,14 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
         returns (bool upkeepNeeded, bytes memory performData)
     {
         upkeepNeeded = (block.timestamp - lastTimestamp) >= interval;
+        performData = checkData;
     }
 /* ------------------------------ performUpKeep ----------------------------- */
-    function performUpkeep() external override {
+    function performUpkeep(bytes calldata) external override {
         if ((block.timestamp - lastTimestamp) >= interval) {
             lastTimestamp = block.timestamp;
             calculateVolatility();
-            uint m_currentVolatility = Config.volatility_index;
+            uint8 m_currentVolatility = getVolatilityIndex();
             if (m_currentVolatility != lastVolatilityIndex) {
                 lastVolatilityIndex = m_currentVolatility;
                 //implementing the rebalancer logic
