@@ -42,6 +42,7 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
             uint m_currentVolatility = Config.volatility_index;
             if (m_currentVolatility != lastVolatilityIndex) {
                 lastVolatilityIndex = m_currentVolatility;
+                //implementing the rebalancer logic
             }
             else {
                 revert NoChangeInVolatilityIndex();
