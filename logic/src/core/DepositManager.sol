@@ -24,10 +24,13 @@
 pragma solidity ^0.8.30;
 
 /* --------------------------------- imports -------------------------------- */
-import {VaultStorage} from "./VaultStorage.sol";
+import {NavCalculator} from "./NavCalculator.sol";
 import {ShareAccounting} from "./ShareAccounting.sol";
-import {NavCalculator} from "../libraries/NavCalculator.sol";
-import {Config} from "../helpers/config.sol";
+import {VaultStorage} from "./VaultStorage.sol";
+import {Config} from "../helpers/Config.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 
 /* ------------------------------- constructor ------------------------------ */
 contract DepositManager is ShareAccounting, NavCalculator{
@@ -47,20 +50,54 @@ contract DepositManager is ShareAccounting, NavCalculator{
             _;
         }
         else{
-            revert 
+            revert VaultPaused();
         }
     }
-    modifier validUser {
-        if(usersIndex[msg.sender] != 0){
-            _;
-        }
-        else
-        {
-            revert 
-        }
-    }
-/* -------------------------------- Functions ------------------------------- */
 
+/* -------------------------------- Functions ------------------------------- */
+    function deposit(uint256 usdcAmount) external payable whenNotPaused{
+        uint256 depositValueUsdc = computeDepositValueUsdc(msg.value, usdcAmount);
+        validateDeposit(msg.value, usdcAmount, depositValueUsdc);
+
+        (uint256 preTotalEth, uint256 preTotalUsdc, uint256 preNavUsdc) = NavCalculator.computeNav();
+
+        if (usdcAmount > 0) {
+            permit2.transferFrom(
+                msg.sender,
+                address(this),
+                uint160(usdcAmount),
+                USDC
+            );
+        }
+
+        uint256 sharesToMint = computeSharesForDeposit(depositValueUsdc, preNavUsdc);
+        
+        if (!initialized) {
+            totalShares += INITIAL_DEAD_SHARES;
+            initialized  = true;
+        }
+
+        uint256 idx = userIndex[msg.sender];
+
+        if (idx == 0) {
+            users.push(User({
+                ethDeposited:     msg.value,
+                usdcDeposited:    usdcAmount,
+                sharesOwned:      sharesToMint,
+                depositTimestamp: block.timestamp,
+                isActive:         true
+            }));
+
+            userIndex[msg.sender] = users.length - 1;
+            
+        } else {
+            UserInfo storage user = users[idx];
+            user.ethDeposited     += msg.value;
+            user.usdcDeposited    += usdcAmount;
+            user.sharesOwned      += sharesToMint;
+            user.depositTimestamp  = block.timestamp;
+            user.isActive          = true;
+        } 
 
 
 
