@@ -66,5 +66,13 @@ contract ShareAccounting is VaultStorage{
             sharesToMint = (depositValueUsd * WAD)/USDC_DECIMALS;    
         } 
     }
+    function computeTokensForShares(
+        uint256 shareToBurn, 
+        uint256 currentTotalEth, 
+        uint256 currentTotalUsdc
+    ) returns(uint256 ethToReturn, uint256 usdcToReturn){
+        ethToReturn  = (sharesToBurn * currentTotalEth)  / totalShares;
+        usdcToReturn = (sharesToBurn * currentTotalUsdc) / totalShares;
+    }
 
 }
