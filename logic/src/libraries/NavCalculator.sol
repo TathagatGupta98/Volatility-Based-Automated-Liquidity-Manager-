@@ -17,7 +17,6 @@ library NavCalculator is VaultStorage {
     using StateLibrary for IPoolManager;
 
 /* ------------------------------- constructor ------------------------------ */
-
     constructor() VaultStorage(
         Config.POOL_MANAGER_ADDRESS,
         Config.POSITION_MANAGER_ADDRESS,
@@ -179,7 +178,4 @@ library NavCalculator is VaultStorage {
         lastNavUsdc      = navUsdc;
         lastNavTimestamp = block.timestamp;
     }
-
-
-    
 }
