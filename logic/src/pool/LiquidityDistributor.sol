@@ -3,7 +3,6 @@ pragma solidity ^0.8.30;
 
 import {DistributionMath} from "../libraries/DistributionMath.sol";
 
-
 contract LiquidityDistributor {
     error LiquidityMustBeGreaterThanZero();
     error VolatilityIndexMustBeGreaterThanZero();
@@ -36,7 +35,7 @@ contract LiquidityDistributor {
         if (_currentTick < MIN_TICK || _currentTick > MAX_TICK){
             revert CurrentTickOutOfBounds();
         }
-
+        
         totalLiquidity = _totalLiquidity;
         currentTick = _currentTick;
         volatilityIndex = _volatilityIndex;
@@ -44,26 +43,34 @@ contract LiquidityDistributor {
 
     /**
      * @dev Computes the distribution of liquidity across tick ranges based on the current tick and volatility index.
-     * @dev calculates the number of slots to distribute liquidity into based on the volatility index, distributes the total liquidity according to predefined weights, 
+     * @dev calculates the number of slots to distribute liquidity into based on the volatility index, distributes the total liquidity according to predefined weights,
      *       and computes the lower and upper ticks for each slot. The resulting slot plan includes the tick ranges and corresponding liquidity amounts for each slot.
      */
-    function computeDistribution () public returns (SlotPlan[] memory) {
+    function computeDistribution() public returns (SlotPlan[] memory) {
         uint256 numberOfSlots = distributeWeights(volatilityIndex);
         uint256[] memory liquidityDistribution;
 
         liquidityDistribution = new uint256[](numberOfSlots);
-        liquidityDistribution = DistributionMath.Distribute(totalLiquidity, weight);
+        liquidityDistribution = DistributionMath.Distribute(
+            totalLiquidity,
+            weight
+        );
 
         currentLowerTick = getCurrentLowerTick(currentTick);
-
         slotPlan = new SlotPlan[](numberOfSlots);
         for ( uint256 i=0 ; i < numberOfSlots ; i++){
             slotPlan[i].lowerTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2)*TICKSPACING);
             slotPlan[i].upperTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2 + 1)*TICKSPACING);
             slotPlan[i].liquidityAmount = liquidityDistribution[i];
+
         }
 
-        return slotPlan;
+        delete slotPlan;
+        for (uint256 i = 0; i < numberOfSlots; i++) {
+            slotPlan.push(computedPlans[i]);
+        }
+
+        return computedPlans;
     }
 
 
@@ -80,9 +87,12 @@ contract LiquidityDistributor {
      * @param _volatilityIndex The current volatility index
      * @return n The number of slots to distribute liquidity into
      */
-    function distributeWeights(uint256 _volatilityIndex) internal returns (uint256) {
+    function distributeWeights(
+        uint256 _volatilityIndex
+    ) internal returns (uint256) {
         uint256 n = 3 + (_volatilityIndex - 1) * 2;
         weight = new uint256[](n);
         return n;
     }
+
 }

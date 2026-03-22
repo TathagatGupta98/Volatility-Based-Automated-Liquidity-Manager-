@@ -16,7 +16,7 @@ library DistributionMath {
      * @param weights An array of weights corresponding to each distribution
      * @return weightedLiquidity An array of liquidity amounts corresponding to each weight
      */
-    function Distribute(uint256 totalLiquidity , uint256[] calldata weights) internal pure returns (uint256[] memory weightedLiquidity) {
+    function Distribute(uint256 totalLiquidity , uint256[] memory weights) internal pure returns (uint256[] memory weightedLiquidity) {
         uint256 numberOfSlots = weights.length;
 
         if( numberOfSlots == 0){
@@ -42,7 +42,7 @@ library DistributionMath {
       * @param weights An array of weights to be validated
       * @return isValid A boolean indicating whether the weights are valid
       */
-    function ValidateWeights(uint256[] calldata weights) internal pure returns (bool isValid) {
+    function ValidateWeights(uint256[] memory weights) internal pure returns (bool isValid) {
         uint256 totalWeight = 0;
         for (uint256 i =0 ; i < weights.length ; i++){
           totalWeight += weights[i];

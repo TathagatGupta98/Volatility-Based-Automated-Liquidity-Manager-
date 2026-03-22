@@ -35,6 +35,16 @@ library Config {
 
     uint24 public constant SWAP_FEES = 3000;
 
+    uint256 public constant LAMBDA = 943_874_312_221_817_000;
+
+    uint256 public constant ONE_MINUS_LAMBDA = 56_125_687_778_183_000;
+
+    uint256 public constant LNSQ_1E18 = 9_999_000_150;
+
+    uint256 public constant TMIN = 5 minutes;
+
+    uint256 public constant N_YEAR = 105120;
+
     address public constant USDC_ADDRESS =
         0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 
