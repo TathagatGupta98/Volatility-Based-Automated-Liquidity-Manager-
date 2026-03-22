@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 /* --------------------------------- import --------------------------------- */
 import {VaultStorage} from "./VaultStorage.sol";
-import {Config} from "../helpers/Config.sol";
+import {Config} from "../helpers/config.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";

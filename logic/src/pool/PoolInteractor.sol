@@ -25,6 +25,8 @@ contract PoolInteractor {
     error RebalanceTooSoon();
     error SwapSlippageExceeded();
     error InsufficientBuffer();
+    error InvalidVolatilityIndex();
+    error NotUpdater();
 
     /* --------------------------------- state ---------------------------------- */
     IPositionManager public immutable positionManager;
@@ -32,6 +34,7 @@ contract PoolInteractor {
     PositionTracker  public immutable positionTracker;
     address          public immutable USDC;
     address          public owner;
+    address          public volatilityUpdater;
 
     uint256 public constant BUFFER_BPS = 1000; // 10% buffer
     uint256 public constant BPS_DENOM  = 10000;
@@ -41,6 +44,7 @@ contract PoolInteractor {
 
     uint256 public idleEth;
     uint256 public idleUsdc;
+    uint8   public volatilityIndex;
 
     struct Slot {
         int24 lowerTick;
@@ -74,6 +78,11 @@ contract PoolInteractor {
         _;
     }
 
+    modifier onlyOwnerOrUpdater() {
+        if (msg.sender != owner && msg.sender != volatilityUpdater) revert NotUpdater();
+        _;
+    }
+
     /* ------------------------------- constructor ------------------------------ */
     constructor(address _positionTracker) {
         poolManager     = Config.poolManager;
@@ -81,6 +90,18 @@ contract PoolInteractor {
         USDC            = Config.USDC_ADDRESS;
         positionTracker = PositionTracker(_positionTracker);
         owner           = msg.sender;
+        volatilityIndex = Config.DEFAULT_VOLATILITY_INDEX;
+    }
+
+    function setVolatilityUpdater(address updater) external onlyOwner {
+        volatilityUpdater = updater;
+    }
+
+    function setVolatilityIndex(uint8 newVolatilityIndex) external onlyOwnerOrUpdater {
+        if (newVolatilityIndex < 1 || newVolatilityIndex > 3) {
+            revert InvalidVolatilityIndex();
+        }
+        volatilityIndex = newVolatilityIndex;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -104,7 +125,7 @@ contract PoolInteractor {
 
         // --- Step 2: read current tick & volatility index ---
         (, int24 currentTick,,) = poolManager.getSlot0(Config.poolId());
-        uint256 volIndex = Config.volatility_index;
+        uint256 volIndex = volatilityIndex;
 
         // --- Step 3: compute number of slots from volatility ---
         uint256 numSlots = 3 + (volIndex - 1) * 2;

@@ -27,7 +27,7 @@ pragma solidity ^0.8.30;
 import {NavCalculator} from "./NavCalculator.sol";
 import {ShareAccounting} from "./ShareAccounting.sol";
 import {VaultStorage} from "./VaultStorage.sol";
-import {Config} from "../helpers/Config.sol";
+import {Config} from "../helpers/config.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
