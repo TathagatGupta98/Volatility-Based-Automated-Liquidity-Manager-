@@ -25,9 +25,9 @@ pragma solidity ^0.8.30;
 
 /* --------------------------------- import --------------------------------- */
 
-import {PoolKey} from "v4-core/types/PoolKey.sol";
-import {Currency} from "v4-core/types/Currency.sol";
-import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
@@ -63,8 +63,9 @@ abstract contract VaultStorage {
 uint256 internal constant WAD = 1e18;
 
     uint256 internal constant USDC_DECIMALS = 1e6;
+    uint256 internal constant USDC_TO_ETH_PRECISION = 1e12;
     uint256 internal constant ETH_DECIMALS = 1e18;
-    uint256 internal constant MIN_DEPOSIT_USDC = 10 * USDC_DECIMALS;
+    uint256 internal constant MIN_DEPOSIT_USDC = 20 * USDC_DECIMALS;
     uint256 internal constant BUFFER_LOWER_BOUND = 5e16; 
     uint256 internal constant BUFFER_UPPER_BOUND = 1e17; 
     uint256 internal constant INITIAL_DEAD_SHARES = 1000;
@@ -232,7 +233,6 @@ uint256 internal constant WAD = 1e18;
         address _positionManager,
         address _permit2,
         address _usdc,
-        address _ethUsdPriceFeed,
         PoolKey memory _poolKey,
         int24 _slotWidthTicks,
         uint256 _ewmaAlpha
@@ -247,7 +247,6 @@ uint256 internal constant WAD = 1e18;
         positionManager  = IPositionManager(_positionManager);
         permit2          = IAllowanceTransfer(_permit2);
         USDC             = _usdc;
-        ethUsdPriceFeed  = _ethUsdPriceFeed;
 
         poolKey          = _poolKey;
         slotWidthTicks   = _slotWidthTicks;
