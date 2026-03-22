@@ -14,11 +14,13 @@ import {Volatility} from "./volatility_calc/volatility.sol";
 contract VaultIntegration is AutomationCompatibleInterface, Volatility {
 /* --------------------------------- errors --------------------------------- */
     error VeryFrequentUpkeep();
+    error NoChangeInVolatilityIndex();
 /* -------------------------------------------------------------------------- */
 /*                               state variables                              */
 /* -------------------------------------------------------------------------- */
     uint public lastTimestamp;
     uint public interval = 300; 
+    uint8 lastVolatilityIndex;
 /* ------------------------------- constructor ------------------------------ */
     constructor() Volatility(){
         lastTimestamp = block.timestamp;
@@ -36,7 +38,14 @@ contract VaultIntegration is AutomationCompatibleInterface, Volatility {
     function performUpkeep() external override {
         if ((block.timestamp - lastTimestamp) >= interval) {
             lastTimestamp = block.timestamp;
-            calculateEWMA();
+            calculateVolatility();
+            uint m_currentVolatility = Config.volatility_index;
+            if (m_currentVolatility != lastVolatilityIndex) {
+                lastVolatilityIndex = m_currentVolatility;
+            }
+            else {
+                revert NoChangeInVolatilityIndex();
+            }
         }
         else {
             revert VeryFrequentUpkeep();

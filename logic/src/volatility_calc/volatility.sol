@@ -42,7 +42,7 @@ contract Volatility {
     /* -------------------------------------------------------------------------- */
     /*                               public funcions                              */
     /* -------------------------------------------------------------------------- */
-    function calculateEWMA() public {
+    function calculateVolatility() public {
         (, int24 m_currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
         uint32 m_currentTimestamp = uint32(block.timestamp);
