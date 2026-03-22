@@ -51,7 +51,7 @@ contract PoolInteractor {
         uint128 targetLiq;
         int256   tickLower;
         int256   tickUpper;
-}
+    }
 
     SlotPlan[] public slotPlan;
 
@@ -117,6 +117,23 @@ contract PoolInteractor {
 
             decisions[i] = d;
         }
+        for (uint256 i = newSlotsCount; i < currentSlotsCount; i++) {
+            PositionTracker.SlotState memory stored = positionTracker.getSlotState(i);
+            if (!stored.hasLiquidity) continue;
+
+            SlotDecision memory d;
+            d.action     = Action.DECREASE_TO_ZERO;
+            d.tokenId    = stored.tokenId;
+            d.currentLiq = _getCurrentLiquidity(stored.tokenId, stored.tickLower, stored.tickUpper);
+            d.targetLiq  = 0;
+            d.tickLower  = stored.tickLower;
+            d.tickUpper  = stored.tickUpper;
+            decisions[idx++] = d;
+        }
 
     }
-         
+
+    function _getCurrentLiquidity(uint256 tokenId, int256 tickLower, int256 tickUpper) internal view returns (uint128 liquidity){
+        
+    }
+}
