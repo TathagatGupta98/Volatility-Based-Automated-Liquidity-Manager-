@@ -9,23 +9,23 @@ contract LiquidityDistributor {
     error CurrentTickOutOfBounds();
 
     uint256 public totalLiquidity;
-    uint256 public currentTick;
+    int256 public currentTick;
     uint256 public volatilityIndex;
-    uint256 private currentLowerTick;
+    int256 private currentLowerTick;
     uint256 public constant TICKSPACING = 60 ; //ETH-USDC POOL
-    uint256 public constant MAX_TICK = 887272;
+    int256 public constant MAX_TICK = 887272;
     int256 public constant MIN_TICK = -887272; 
     uint256[] public weight;
 
     struct SlotPlan{
-        uint256 lowerTick;
-        uint256 upperTick;
+        int256 lowerTick;
+        int256 upperTick;
         uint256 liquidityAmount;
     }
 
     SlotPlan[] public slotPlan;
 
-    constructor(uint256 _totalLiquidity, uint256 _currentTick, uint256 _volatilityIndex) {
+    constructor(uint256 _totalLiquidity, int256 _currentTick, uint256 _volatilityIndex) {
         if(_totalLiquidity == 0){
             revert LiquidityMustBeGreaterThanZero();
         }
@@ -56,29 +56,25 @@ contract LiquidityDistributor {
             weight
         );
 
-        currentLowerTick = getCurrentLowerTick(currentTick);
-        slotPlan = new SlotPlan[](numberOfSlots);
-        for ( uint256 i=0 ; i < numberOfSlots ; i++){
-            slotPlan[i].lowerTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2)*TICKSPACING);
-            slotPlan[i].upperTick = uint256(currentLowerTick + (i - (numberOfSlots -1)/2 + 1)*TICKSPACING);
-            slotPlan[i].liquidityAmount = liquidityDistribution[i];
-
-        }
-
+        currentLowerTick = getCurrentLowerTick(int256(currentTick));
         delete slotPlan;
-        for (uint256 i = 0; i < numberOfSlots; i++) {
-            slotPlan.push(computedPlans[i]);
-        }
 
-        return computedPlans;
+        for (uint256 i = 0; i < numberOfSlots; i++) {
+            slotPlan.push(SlotPlan({
+            lowerTick: int256(currentLowerTick + (int256((int256(i) - (int256(numberOfSlots) - 1) / 2) * int256(TICKSPACING)))),
+            upperTick: int256(currentLowerTick + (int256((int256(i) - (int256(numberOfSlots) - 1) / 2 + 1) * int256(TICKSPACING)))),
+            liquidityAmount: liquidityDistribution[i]
+        }));
+        }
+        return slotPlan;
     }
 
 
     /**
      * @dev Calculates the current lower tick based on the current tick and tick spacing.
      */
-    function getCurrentLowerTick(uint256 _currentTick) internal pure returns (uint256) {
-        return (_currentTick - (_currentTick % TICKSPACING));
+    function getCurrentLowerTick(int256 _currentTick) internal pure returns (int256) {
+        return (_currentTick - (_currentTick % int256(TICKSPACING)));
     }
 
 
