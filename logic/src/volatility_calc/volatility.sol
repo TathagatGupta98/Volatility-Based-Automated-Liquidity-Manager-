@@ -24,37 +24,27 @@ contract Volatility {
     /* -------------------------------------------------------------------------- */
     /*                                  constants                                 */
     /* -------------------------------------------------------------------------- */
-    uint128 ewmaVariance = 0;
+    uint256 ewmaVariance = 0;
     int24 lastTick;
     uint32 lastObservationTimestamp;
     uint256 lastObservationBlock;
 
     /* ------------------------------- constructur ------------------------------ */
     constructor() {
-        (
-            uint160 sqrtPriceX96,
-            int24 tick,
-            uint24 protocolFee,
-            uint24 lpFee
-        ) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
+        (, int24 tick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
         lastTick = tick;
-        lastObservationTimestamp = block.timestamp;
+        lastObservationTimestamp = uint32(block.timestamp);
         lastObservationBlock = block.number;
     }
 
     /* -------------------------------------------------------------------------- */
     /*                               public funcions                              */
     /* -------------------------------------------------------------------------- */
-    function calculateEWMA() public view returns (uint256) {
-        (
-            uint160 sqrtPriceX96,
-            int24 m_currenttick,
-            uint24 protocolFee,
-            uint24 lpFee
-        ) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
+    function calculateEWMA() public {
+        (, int24 m_currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
-        uint32 m_currentTimestamp = block.timestamp;
+        uint32 m_currentTimestamp = uint32(block.timestamp);
         uint256 m_currentBlock = block.number;
 
         int24 delta = m_currentTick - lastTick;
@@ -72,6 +62,14 @@ contract Volatility {
         }
 
         _calculateEwmaVariance(delta);
+
+        volatility_calculated = _calculateVolatility();
+
+        _updateVolatilityIndexValue(volatility_calculated);
+
+        lastTick = m_currentTick;
+        lastObservationTimestamp = m_currentTimestamp;
+        lastObservationBlock = m_currentBlock;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -81,10 +79,10 @@ contract Volatility {
         int24 delta,
         uint32 time,
         uint256 bnum
-    ) internal returns (uint8 errorCode) {
+    ) internal view returns (uint8 errorCode) {
         if (bnum <= lastObservationBlock) {
             return 10;
-        } else if (time <= lastObservationTimestamp + Config.Tmin) {
+        } else if (time <= lastObservationTimestamp + Config.TMIN) {
             return 11;
         } else if (delta > 300 || delta < -300) {
             return 1;
@@ -93,13 +91,28 @@ contract Volatility {
         }
     }
 
-    function _calculateEwmaVariance(int24 delta) {
-        uint256 returnSquareScaled = delta * delta * Config.LNSQ_1E18;
+    function _calculateEwmaVariance(int24 delta) internal {
+        int256 delta256 = int256(delta);
+        uint256 returnSquareScaled = uint256(delta256 * delta256) * Config.LNSQ_1E18;
         ewmaVariance =
             Config.LAMBDA *
             ewmaVariance +
             Config.ONE_MINUS_LAMBDA *
             returnSquareScaled;
         ewmaVariance = ewmaVariance / 1e18;
+    }
+
+    function _calculateVolatility() internal view returns (uint256 volatility) {
+        return sqrt(ewmaVariance)*1e9;
+    }
+
+    function _updateVolatilityIndexValue(uint256 volatility) internal {
+        if (volatility < 1500000000000000) {
+            Config.volatility_index = Config.LOW_VOLATILITY;
+        } else if (volatility >= 1500000000000000 && volatility < 2750000000000000) {
+            Config.volatility_index = Config.MEDIUM_VOLATILITY;
+        } else {
+            Config.volatility_index = Config.HIGH_VOLATILITY;
+        }
     }
 }
