@@ -49,7 +49,7 @@ contract ShareAccounting is VaultStorage{
     ) {}
 
 
-    function getEthUsdcPrice() returns (uint256 p_actual) {
+    function getEthUsdcPrice() public view returns (uint256 p_actual) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(Config.poolId());
 
         uint265 p_raw = (uint256(sqrtPriceX96) * uint256(sqrtPriceX96)) / 2**96;
