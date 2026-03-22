@@ -14,8 +14,10 @@ import {PositionTracker} from "./PositionTracker.sol";
 import {LiquidityDistributor} from "./LiquidityDistributor.sol";
 import {DistributionMath} from "../libraries/DistributionMath.sol";
 import {Config} from "../helpers/config.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
 
-contract PoolInteractor {
+contract PoolInteractor is IUnlockCallback {
     using SafeERC20     for IERC20;
     using PoolIdLibrary for PoolKey;
     using StateLibrary  for IPoolManager;
@@ -114,16 +116,21 @@ contract PoolInteractor {
      * @param totalLiquidityAvailable Total liquidity (in token units) the vault
      *        wants deployed *after* the 10% buffer is separated.
      */
-    function rebalance(uint256 totalLiquidityAvailable) external onlyOwner {
+    function rebalance(uint256 totalLiquidityAvailable, uint256 _volatilityIndex) external onlyOwner {
         if (block.timestamp < lastRebalanceTimestamp + MIN_REBALANCE_INTERVAL) {
             revert RebalanceTooSoon();
         }
+
+        volatilityIndex = _volatilityIndex;
+
+        // --- Step 0: rebalance idle buffer if token ratio is skewed ---
+        _rebalanceIdleBuffer();
 
         // --- Step 1: separate 10% buffer ---
         uint256 bufferAmount   = (totalLiquidityAvailable * BUFFER_BPS) / BPS_DENOM;
         uint256 deployableLiq  = totalLiquidityAvailable - bufferAmount;
 
-        // --- Step 2: read current tick & volatility index ---
+        // --- Step 2: read current tick & use passed volatility index ---
         (, int24 currentTick,,) = poolManager.getSlot0(Config.poolId());
         uint256 volIndex = volatilityIndex;
 
@@ -201,7 +208,15 @@ contract PoolInteractor {
                 if (liq > 0) {
                     _decreaseLiquidity(stored.tokenId, liq);
                 }
-                positionTracker.setHasLiquidity(i, false);
+                // Fully deactivate the old slot
+                positionTracker.setSlotState(
+                    i,
+                    stored.tokenId,
+                    stored.lowerTick,
+                    stored.upperTick,
+                    0,
+                    false
+                );
             }
         }
 
@@ -238,6 +253,10 @@ contract PoolInteractor {
 
         positionTracker.setSlotCount(numSlots);
         lastRebalanceTimestamp = block.timestamp;
+
+        // Update idle balances after all position changes
+        idleEth  = address(this).balance;
+        idleUsdc = IERC20(USDC).balanceOf(address(this));
     }
 
     /* -------------------------------------------------------------------------- */
@@ -275,12 +294,22 @@ contract PoolInteractor {
         uint256 _idleUsdc,
         uint160 sqrtPriceX96
     ) external pure returns (bool shouldSwap, bool zeroForOne, uint256 amountToSwap) {
-        // convert ETH to USDC-equivalent for ratio check
-        // price = (sqrtPriceX96)^2 / 2^192, then scale for decimals
-        uint256 priceX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
-        // ethInUsdc = eth * price * 1e6 / 1e18 (adjust 12 decimals)
-        uint256 ethValueUsdc = (_idleEth * priceX192) / (1 << 192);
-        ethValueUsdc = ethValueUsdc * 1e12; // 18-decimal ETH -> 6-decimal USDC
+        // price in token1/token0 raw decimals = (sqrtPriceX96)^2 / 2^192
+        // For ETH(18dec)/USDC(6dec): result is in USDC-raw per ETH-raw
+        // ethValueUsdc (in 6-decimal USDC) = _idleEth * priceX192 / 2^192
+        // But direct multiplication overflows, so we split:
+        // ethValueUsdc = (_idleEth * (sqrtPriceX96/2^48)^2) / 2^96
+        
+        uint256 sqrtPriceReduced = uint256(sqrtPriceX96);
+        // Use mulDiv pattern to avoid overflow
+        // price = sqrtPriceX96^2 / 2^192
+        // ethValueUsdc = _idleEth * sqrtPriceX96^2 / 2^192
+        
+        // Split: ethValueUsdc = (_idleEth * sqrtPriceX96 / 2^96) * sqrtPriceX96 / 2^96
+        uint256 intermediate = (_idleEth * sqrtPriceReduced) >> 96;
+        uint256 ethValueUsdc = (intermediate * sqrtPriceReduced) >> 96;
+        
+        // ethValueUsdc is now in USDC raw units (6 decimals) — no extra scaling needed
 
         uint256 totalValueUsdc = ethValueUsdc + _idleUsdc;
         if (totalValueUsdc == 0) return (false, false, 0);
@@ -288,23 +317,98 @@ contract PoolInteractor {
         uint256 ethRatioBps = (ethValueUsdc * BPS_DENOM) / totalValueUsdc;
 
         if (ethRatioBps > SWAP_THRESHOLD_BPS) {
-            // too much ETH, sell ETH for USDC
-            // target: bring ratio to 50%
             uint256 excessUsdc = ethValueUsdc - (totalValueUsdc / 2);
-            // convert USDC-value back to ETH amount
-            amountToSwap = (excessUsdc * (1 << 192)) / (priceX192 * 1e12);
+            // Convert USDC value back to ETH: ethAmt = excessUsdc * 2^192 / sqrtPrice^2
+            // = excessUsdc * 2^96 / sqrtPrice * 2^96 / sqrtPrice
+            amountToSwap = (excessUsdc << 96) / sqrtPriceReduced;
+            amountToSwap = (amountToSwap << 96) / sqrtPriceReduced;
             return (true, true, amountToSwap);
         }
 
         uint256 usdcRatioBps = (_idleUsdc * BPS_DENOM) / totalValueUsdc;
         if (usdcRatioBps > SWAP_THRESHOLD_BPS) {
-            // too much USDC, sell USDC for ETH
             uint256 excessUsdc = _idleUsdc - (totalValueUsdc / 2);
             amountToSwap = excessUsdc;
             return (true, false, amountToSwap);
         }
 
         return (false, false, 0);
+    }
+
+    /**
+     * @notice Executes a swap on the Uniswap pool if the idle buffer is skewed
+     *         >85% toward one token. Called internally before rebalancing.
+     */
+    function _rebalanceIdleBuffer() internal {
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(Config.poolId());
+        
+        (bool shouldSwap, bool zeroForOne, uint256 amountToSwap) = this.checkAndComputeSwap(
+            idleEth,
+            idleUsdc,
+            sqrtPriceX96
+        );
+
+        if (shouldSwap && amountToSwap > 0) {
+            _executeSwap(zeroForOne, amountToSwap);
+        }
+    }
+
+    struct SwapCallbackData {
+        bool zeroForOne;
+        uint256 amountIn;
+    }
+
+    bytes internal _pendingSwapData;
+
+    function _executeSwap(bool zeroForOne, uint256 amountIn) internal {
+        _pendingSwapData = abi.encode(SwapCallbackData({
+            zeroForOne: zeroForOne,
+            amountIn: amountIn
+        }));
+        poolManager.unlock(abi.encode(uint8(1))); // 1 = swap action
+    }
+
+    function unlockCallback(bytes calldata data) external override returns (bytes memory) {
+        require(msg.sender == address(poolManager), "only pool manager");
+        
+        uint8 action = abi.decode(data, (uint8));
+        
+        if (action == 1) {
+            SwapCallbackData memory swapData = abi.decode(_pendingSwapData, (SwapCallbackData));
+            delete _pendingSwapData;
+            
+            IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+                zeroForOne: swapData.zeroForOne,
+                amountSpecified: -int256(swapData.amountIn), // exact input (negative = exact input)
+                sqrtPriceLimitX96: swapData.zeroForOne 
+                    ? TickMath.MIN_SQRT_PRICE + 1 
+                    : TickMath.MAX_SQRT_PRICE - 1
+            });
+
+            poolManager.swap(Config.poolKey(), params, "");
+
+            // Settle both currencies — the pool manager knows who owes what
+            // For the currency we're selling: settle (pay in)
+            // For the currency we're buying: take (withdraw)
+            _settleCurrencyDebt(Currency.wrap(address(0)), swapData.zeroForOne ? swapData.amountIn : 0);
+            _settleCurrencyDebt(Currency.wrap(USDC), swapData.zeroForOne ? 0 : swapData.amountIn);
+        }
+
+        idleEth  = address(this).balance;
+        idleUsdc = IERC20(USDC).balanceOf(address(this));
+
+        return "";
+    }
+
+    function _settleCurrencyDebt(Currency currency, uint256 maxSettle) internal {
+        if (maxSettle > 0) {
+            if (Currency.unwrap(currency) == address(0)) {
+                poolManager.settle{value: maxSettle}();
+            } else {
+                IERC20(Currency.unwrap(currency)).safeTransfer(address(poolManager), maxSettle);
+                poolManager.settle();
+            }
+        }
     }
 
     /* -------------------------------------------------------------------------- */
@@ -343,9 +447,10 @@ contract PoolInteractor {
         bytes memory actions = abi.encodePacked(
             uint8(Actions.MINT_POSITION),
             uint8(Actions.SETTLE_PAIR),
+            uint8(Actions.SWEEP),
             uint8(Actions.SWEEP)
         );
-        bytes[] memory params = new bytes[](3);
+        bytes[] memory params = new bytes[](4);
         params[0] = abi.encode(
             key,
             tickLower,
@@ -357,9 +462,13 @@ contract PoolInteractor {
             ""
         );
         params[1] = abi.encode(address(0), USDC);
-        params[2] = abi.encode(address(0), address(this));
+        params[2] = abi.encode(address(0), address(this));  // sweep ETH
+        params[3] = abi.encode(USDC, address(this));         // sweep USDC
 
         uint256 tokenId = positionManager.nextTokenId();
+
+        // Approve USDC to positionManager before minting
+        IERC20(USDC).safeApprove(address(positionManager), type(uint256).max);
 
         positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
@@ -379,13 +488,17 @@ contract PoolInteractor {
             uint8(Actions.INCREASE_LIQUIDITY),
             uint8(Actions.CLOSE_CURRENCY),
             uint8(Actions.CLOSE_CURRENCY),
+            uint8(Actions.SWEEP),
             uint8(Actions.SWEEP)
         );
-        bytes[] memory params = new bytes[](4);
+        bytes[] memory params = new bytes[](5);
         params[0] = abi.encode(tokenId, liquidity, amount0Max, amount1Max, "");
         params[1] = abi.encode(address(0));
         params[2] = abi.encode(USDC);
         params[3] = abi.encode(address(0), address(this));
+        params[4] = abi.encode(USDC, address(this));
+
+        IERC20(USDC).safeApprove(address(positionManager), type(uint256).max);
 
         positionManager.modifyLiquidities{value: address(this).balance}(
             abi.encode(actions, params), block.timestamp
@@ -418,12 +531,18 @@ contract PoolInteractor {
         int24 tickLower,
         int24 tickUpper
     ) internal view returns (uint128 liquidity) {
-        (liquidity,,,) = poolManager.getPositionInfo(
+        // v4 position key: keccak256(owner, tickLower, tickUpper, salt)
+        bytes32 positionId = keccak256(
+            abi.encodePacked(
+                address(positionManager),
+                tickLower,
+                tickUpper,
+                bytes32(tokenId)
+            )
+        );
+        (liquidity,,) = poolManager.getPositionInfo(
             Config.poolId(),
-            address(positionManager),
-            tickLower,
-            tickUpper,
-            bytes32(tokenId)
+            positionId
         );
     }
 

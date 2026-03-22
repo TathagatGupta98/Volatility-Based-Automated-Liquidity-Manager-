@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 
 contract PositionTracker {
     
-    address public immutable poolInteractorAddress;
+    address public  poolInteractorAddress;
 
     error NotPoolInteractor();
 
@@ -12,13 +12,15 @@ contract PositionTracker {
         uint256 tokenId;
         int256 lowerTick;
         int256 upperTick;
+        uint256 liquidityAmount;
         bool isActive;
     }
 
     mapping (uint256 slotIndex => SlotState) public slots;
     uint256 public slotCount;
 
-    constructor(address _poolInteractor) {
+    function initialize(address _poolInteractor) external {
+        require(poolInteractorAddress == address(0), "already initialized");
         poolInteractorAddress = _poolInteractor;
     }
 
@@ -34,6 +36,7 @@ contract PositionTracker {
             tokenId: _tokenId,
             lowerTick: _lowerTick,
             upperTick: _upperTick,
+            liquidityAmount: _liquidityAmount,
             isActive: _isActive
         });
     }
