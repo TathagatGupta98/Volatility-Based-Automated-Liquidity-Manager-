@@ -36,12 +36,13 @@ contract Volatility {
         lastTick = tick;
         lastObservationTimestamp = uint32(block.timestamp);
         lastObservationBlock = block.number;
+        ewmaVariance = 0;
     }
 
     /* -------------------------------------------------------------------------- */
     /*                               public funcions                              */
     /* -------------------------------------------------------------------------- */
-    function calculateEWMA() public returns (uint256) {
+    function calculateEWMA() public {
         (, int24 m_currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
         uint32 m_currentTimestamp = uint32(block.timestamp);
@@ -58,16 +59,18 @@ contract Volatility {
         if (errorCode != 0 && errorCode != 1) {
             revert flashLoanAttack();
         } else if (errorCode == 1) {
-            delta = 300;
+            delta = 150;
         }
 
         _calculateEwmaVariance(delta);
 
+        volatility_calculated = _calculateVolatility();
+
+        _updateVolatilityIndexValue(volatility_calculated);
+
         lastTick = m_currentTick;
         lastObservationTimestamp = m_currentTimestamp;
         lastObservationBlock = m_currentBlock;
-
-        return ewmaVariance;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -82,7 +85,7 @@ contract Volatility {
             return 10;
         } else if (time <= lastObservationTimestamp + Config.TMIN) {
             return 11;
-        } else if (delta > 300 || delta < -300) {
+        } else if (delta > 150 || delta < -150) {
             return 1;
         } else {
             return 0;
@@ -98,5 +101,19 @@ contract Volatility {
             Config.ONE_MINUS_LAMBDA *
             returnSquareScaled;
         ewmaVariance = ewmaVariance / 1e18;
+    }
+
+    function _calculateVolatility() internal view returns (uint256 volatility) {
+        return sqrt(ewmaVariance)*1e9;
+    }
+
+    function _updateVolatilityIndexValue(uint256 volatility) internal {
+        if (volatility < 2000000000000000) {
+            Config.volatility_index = Config.LOW_VOLATILITY;
+        } else if (volatility >= 2000000000000000 && volatility < 7000000000000000) {
+            Config.volatility_index = Config.MEDIUM_VOLATILITY;
+        } else {
+            Config.volatility_index = Config.HIGH_VOLATILITY;
+        }
     }
 }
