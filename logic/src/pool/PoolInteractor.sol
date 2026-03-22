@@ -26,7 +26,16 @@ contract PoolInteractor {
     address public immutable token0;
     address public immutable token1;
 
-    PoolKey public poolKey;
+    Poolkey internal immutable poolKey = Config.poolKey();
+    PoolId internal immutable poolId = Config.poolId();
+
+    struct Slot {
+        int256 lowerTick;
+        int256 upperTick;
+        uint256 liquidityAmount;
+    }
+
+    mapping (uint256 => Slot) public tokenIdToSlot;
 
     struct SlotPlan{
         int256 lowerTick;
@@ -55,26 +64,60 @@ contract PoolInteractor {
 
     SlotPlan[] public slotPlan;
 
+/* -------------------------------------------------------------------------- */
+/*                             Aradhya's functions                            */
+/* -------------------------------------------------------------------------- */
 
-    function rebalance(SlotPlan[] calldata plans ) external {
-
-        //checkv2approval
-
-        //snapshot of the next tokenId
-        uint256 mintNextTokenId = positionManager.nextTokenId();
-
-        SlotDecision[] memory decisions= decideActions(plans);
-
+    function checkLiquiditySlots {
+        
     }
+
+/* -------------------------------------------------------------------------- */
+/*                             internal functions                             */
+/* -------------------------------------------------------------------------- */
+    function mint(
+        PoolKey calldata key,
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 liquidity
+    ) internal payable returns (uint256) {
+        bytes memory actions = abi.encodePacked(
+            uint8(Actions.MINT_POSITION),
+            uint8(Actions.SETTLE_PAIR),
+            uint8(Actions.SWEEP)
+        );
+        bytes[] memory params = new bytes[](3);
+        params[0] = abi.encode(
+            key,
+            tickLower,
+            tickUpper,
+            liquidity,
+            type(uint128).max,
+            type(uint128).max,
+            address(this),
+            ""
+        );
+
+        params[1] = abi.encode(address(0), USDC);
+
+        params[2] = abi.encode(address(0), address(this));
+
+        uint256 tokenId = posm.nextTokenId();
+
+        Config.poolManager.modifyLiquidities{value: address(this).balance}(
+            abi.encode(actions, params), block.timestamp
+        );
+
+        return tokenId;
+    }
+
+/* -------------------------------------------------------------------------- */
+/*                            uttkarsh ke functions                           */
+/* -------------------------------------------------------------------------- */
 
     function decideActions(SlotPlan[] calldata plans) internal  returns (SlotDecision[] memory decisions){
         uint256 newSlotsCount = plans.length;
         uint256 currentSlotsCount = positionTracker.slotCount();
-        uint256 memory orphanslots = 0;
-
-        for (uint256 i = newSlotsCount; i < currentSlotsCount; i++){
-            if(positionTracker.hasLiquidity(i))orphanslots++;
-        }
 
         decisions = new SlotDecision[](newSlotsCount);
 
@@ -106,7 +149,7 @@ contract PoolInteractor {
 
                 if (current == 0) {
                     d.action = Action.REACTIVATE;
-                } else if (plan.amount > current) {
+                } else if (plan.liquidityAmount > current) {
                     d.action = Action.INCREASE;
                 } else if (plan.amount < current) {
                     d.action = Action.DECREASE;
