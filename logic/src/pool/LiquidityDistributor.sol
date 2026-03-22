@@ -85,4 +85,5 @@ contract LiquidityDistributor {
         uint256 n = 3 + (_volatilityIndex - 1) * 2;
         weight = new uint256[](n);
         return n;
+    }
 }
