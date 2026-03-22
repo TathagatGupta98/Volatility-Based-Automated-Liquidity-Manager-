@@ -1,3 +1,5 @@
 logic/lib
 logic/remappings.txt
 logic/out
+out/
+cache/
