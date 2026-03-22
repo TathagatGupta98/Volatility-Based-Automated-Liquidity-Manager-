@@ -65,5 +65,5 @@ library Config {
         return poolKey().toId();
     }
 
-    uint8 public volatility_index = LOW_VOLATILITY;
+    uint8 public constant DEFAULT_VOLATILITY_INDEX = uint8(LOW_VOLATILITY);
 }
