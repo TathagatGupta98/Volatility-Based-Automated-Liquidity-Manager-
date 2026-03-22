@@ -10,7 +10,14 @@ pragma solidity ^0.8.30;
 
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
+import {Config} from "../helpers/config.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 contract Volatility {
-    
+
+    function calculateEWMA() public view returns (uint256) {
+        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
+
+        return uint256(sqrtPriceX96) + uint256(uint24(tick)) + uint256(protocolFee) + uint256(lpFee);
+    }
 }

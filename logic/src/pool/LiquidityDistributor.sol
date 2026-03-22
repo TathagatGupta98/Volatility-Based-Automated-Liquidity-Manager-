@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import "./DistributionMath.sol";
+import "../libraries/DistributionMath.sol";
 
 contract LiquidityDistributor {
     uint256 public totalLiquidity;
