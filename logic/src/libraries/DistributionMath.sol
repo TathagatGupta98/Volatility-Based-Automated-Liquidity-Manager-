@@ -1,66 +1,51 @@
-//SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
 /**
-  * @title DistributionMath
-  * @dev Library for distributing liquidity based on weights
+ * @title DistributionMath
+ * @dev Library for distributing liquidity based on weights.
+ *      Weights are in whole-number percentages and MUST sum to 100.
+ *      Rounding dust is added to the centre slot.
  */
 library DistributionMath {
-     error SumweightsNotEqual100();
-     error WeigthsArrayLengthZero();
-
+    error SumWeightsNotEqual100();
+    error WeightsArrayLengthZero();
 
     /**
-     * @dev Distributes total liquidity based on provided weights
-     * @param totalLiquidity The total liquidity to be distributed
-     * @param weights An array of weights corresponding to each distribution
-     * @return weightedLiquidity An array of liquidity amounts corresponding to each weight
+     * @param totalLiquidity Total liquidity (in token units or abstract units)
+     * @param weights        Array of percentage weights, each 0-100, summing to 100
+     * @return amounts       Liquidity allocated to each slot
      */
-    function Distribute(uint256 totalLiquidity , uint256[] memory weights) internal pure returns (uint256[] memory weightedLiquidity) {
-        uint256 numberOfSlots = weights.length;
+    function distribute(
+        uint256 totalLiquidity,
+        uint256[] memory weights
+    ) internal pure returns (uint256[] memory amounts) {
+        uint256 n = weights.length;
+        if (n == 0) revert WeightsArrayLengthZero();
+        if (!_validateWeights(weights)) revert SumWeightsNotEqual100();
 
-        if( numberOfSlots == 0){
-           revert WeigthsArrayLengthZero();
+        amounts = new uint256[](n);
+        uint256 allocated;
+
+        for (uint256 i = 0; i < n; i++) {
+            amounts[i] = (totalLiquidity * weights[i]) / 100;
+            allocated += amounts[i];
         }
 
-        weightedLiquidity = new uint256[](numberOfSlots);
-        for (uint256 i = 0; i < numberOfSlots; i++){
-           weightedLiquidity[i] = (totalLiquidity ) / numberOfSlots;
+        // Add rounding dust to centre slot
+        uint256 dust = totalLiquidity - allocated;
+        if (dust > 0) {
+            amounts[n / 2] += dust;
         }
-
-        uint256 dust = calculateDust(totalLiquidity, weightedLiquidity);
-        weightedLiquidity[numberOfSlots/2] = weightedLiquidity[numberOfSlots/2] + dust; 
-
-        if(!ValidateWeights(weights)){
-         revert SumweightsNotEqual100();
-        }    
-    }  
-
-
-     /**
-      * @dev Validates that the sum of weights equals 100
-      * @param weights An array of weights to be validated
-      * @return isValid A boolean indicating whether the weights are valid
-      */
-    function ValidateWeights(uint256[] memory weights) internal pure returns (bool isValid) {
-        uint256 totalWeight = 0;
-        for (uint256 i =0 ; i < weights.length ; i++){
-          totalWeight += weights[i];
-        }
-        isValid = (totalWeight == 100);
     }
 
-     /**
-      * @dev Calculates the dust amount after distribution
-      * @param totalLiquidity The total liquidity that was distributed
-      * @param weightedLiquidity An array of liquidity amounts that were distributed
-      * @return dust The remaining liquidity that was not distributed due to rounding
-      */
-    function calculateDust(uint256 totalLiquidity, uint256[] memory weightedLiquidity) internal pure returns (uint256 dust) {
-        uint256 distributedAmount = 0;
-        for( uint256 i=0 ; i < weightedLiquidity.length; i++){
-          distributedAmount += weightedLiquidity[i];
+    function _validateWeights(
+        uint256[] memory weights
+    ) private pure returns (bool) {
+        uint256 total;
+        for (uint256 i = 0; i < weights.length; i++) {
+            total += weights[i];
         }
-        dust = totalLiquidity - distributedAmount;
+        return total == 100;
     }
 }
