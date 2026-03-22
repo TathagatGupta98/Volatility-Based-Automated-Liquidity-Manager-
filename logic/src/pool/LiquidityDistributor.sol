@@ -69,7 +69,6 @@ contract LiquidityDistributor {
 
     /**
      * @dev Calculates the current lower tick based on the current tick and tick spacing.
-     * @return The current lower tick
      */
     function getCurrentLowerTick(uint256 _currentTick) internal pure returns (uint256) {
         return (_currentTick - (_currentTick % TICKSPACING));
