@@ -134,9 +134,19 @@ contract DepositManager is ShareAccounting, NavCalculator{
         (uint256 totalEth, uint256 totalUsdc, uint256 navUsdc) = computeNav();
         (uint256 ethOwed, uint256 usdcOwed) = computeTokensForShares(sharesToBurn, totalEth, totalUsdc);
 
-        if (idleEth == 0 && idleUsdc == 0) revert BufferEmpty();
+        if (idleEth < ethOwed && idleUsdc < usdcOwed) revert BufferEmpty();
+        
+        user.sharesOwned -= sharesToBurn;
 
+        if (user.sharesOwned == 0) {
+            user.isActive = false;
+        }
 
+        idleEth  -= ethOwed;
+        idleUsdc -= usdcOwed;
+
+        totalShares -= sharesToBurn;
+
+        
     }
-
 }
