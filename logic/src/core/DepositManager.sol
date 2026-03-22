@@ -147,6 +147,16 @@ contract DepositManager is ShareAccounting, NavCalculator{
 
         totalShares -= sharesToBurn;
 
+        if (usdcOwed > 0) {
+            bool usdcSuccess = IERC20(USDC).transfer(msg.sender, usdcOwed);
+            if (!usdcSuccess) revert NativeTransferFailed();
+        }
+
+        if (ethOwed > 0) {
+            (bool ethSuccess, ) = msg.sender.call{value: ethOwed}("");
+            if (!ethSuccess) revert NativeTransferFailed();
+        }
         
+        emit Withdrawal(msg.sender, sharesToBurn, ethOwed, usdcOwed, navUsdc);
     }
 }
