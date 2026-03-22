@@ -41,7 +41,7 @@ contract Volatility {
     /* -------------------------------------------------------------------------- */
     /*                               public funcions                              */
     /* -------------------------------------------------------------------------- */
-    function calculateEWMA() public returns (uint256) {
+    function calculateEWMA() public {
         (, int24 m_currentTick,,) = StateLibrary.getSlot0(Config.poolManager, Config.poolId());
 
         uint32 m_currentTimestamp = uint32(block.timestamp);
@@ -67,7 +67,9 @@ contract Volatility {
         lastObservationTimestamp = m_currentTimestamp;
         lastObservationBlock = m_currentBlock;
 
-        return ewmaVariance;
+        volatility_calculated = _calculateVolatility();
+
+        _updateVolatilityIndexValue(volatility_calculated);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -98,5 +100,19 @@ contract Volatility {
             Config.ONE_MINUS_LAMBDA *
             returnSquareScaled;
         ewmaVariance = ewmaVariance / 1e18;
+    }
+
+    function _calculateVolatility() internal view returns (uint256 volatility) {
+        return sqrt(ewmaVariance)*1e9;
+    }
+
+    function _updateVolatilityIndexValue(uint256 volatility) internal {
+        if (volatility < 1500000000000000) {
+            Config.volatility_index = Config.LOW_VOLATILITY;
+        } else if (volatility >= 1500000000000000 && volatility < 2750000000000000) {
+            Config.volatility_index = Config.MEDIUM_VOLATILITY;
+        } else {
+            Config.volatility_index = Config.HIGH_VOLATILITY;
+        }
     }
 }

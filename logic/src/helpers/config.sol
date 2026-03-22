@@ -62,4 +62,6 @@ library Config {
     function poolId() internal pure returns (PoolId) {
         return poolKey().toId();
     }
+
+    uint8 public volatility_index = LOW_VOLATILITY;
 }
