@@ -22,17 +22,18 @@ library DistributionMath {
         if( numberOfSlots == 0){
            revert WeigthsArrayLengthZero();
         }
-        if(!ValidateWeights(weights)){
-           revert SumweightsNotEqual100();
-        }
 
         weightedLiquidity = new uint256[](numberOfSlots);
         for (uint256 i = 0; i < numberOfSlots; i++){
-           weightedLiquidity[i] = (totalLiquidity * weights[i]) / 100;
+           weightedLiquidity[i] = (totalLiquidity ) / numberOfSlots;
         }
 
         uint256 dust = calculateDust(totalLiquidity, weightedLiquidity);
-        weightedLiquidity[numberOfSlots/2] = weightedLiquidity[numberOfSlots/2] + dust;     
+        weightedLiquidity[numberOfSlots/2] = weightedLiquidity[numberOfSlots/2] + dust; 
+
+        if(!ValidateWeights(weights)){
+         revert SumweightsNotEqual100();
+        }    
     }  
 
 
