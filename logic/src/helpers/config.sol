@@ -50,6 +50,12 @@ library Config {
 
     address public constant PERMIT2_ADDRESS = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
+    address public constant CHAINLINK_ETH_USD_FEED =
+        0x694AA1769357215DE4FAC081bf1f309aDC325306;
+
+    uint256 public constant ORACLE_STALE_THRESHOLD = 2 hours;
+    uint256 public constant MAX_POOL_ORACLE_DEVIATION_BPS = 2500;
+
     function poolKey() internal pure returns (PoolKey memory) {
         return
             PoolKey({

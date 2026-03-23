@@ -30,6 +30,7 @@ import {PoolId} from "v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {IChainlinkAggregatorV3} from "../interfaces/IChainlinkAggregatorV3.sol";
 
 /* -------------------------------------------------------------------------- */
 /*                                  contract                                  */
@@ -44,10 +45,40 @@ abstract contract ShareAccounting is VaultStorage{
      * @return p_actual The current ETH price denominated in USDC (scaled to 1e18 where applicable).
      */
     function getEthUsdcPrice() public view returns (uint256 p_actual) {
+        uint256 poolPrice = _poolEthUsdcPrice();
+        uint256 oraclePrice = _oracleEthUsdcPrice();
+
+        if (oraclePrice == 0) return poolPrice;
+        if (poolPrice == 0) return oraclePrice;
+
+        uint256 diff = poolPrice > oraclePrice ? poolPrice - oraclePrice : oraclePrice - poolPrice;
+        if (diff * 10_000 > oraclePrice * Config.MAX_POOL_ORACLE_DEVIATION_BPS) {
+            return oraclePrice;
+        }
+
+        return poolPrice;
+    }
+
+    function _poolEthUsdcPrice() internal view returns (uint256) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(Config.poolId());
-        // Use FullMath.mulDiv to avoid overflow
-        uint256 p_raw = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 192);
-        p_actual = p_raw * 1e12;
+        uint256 priceX96 = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 96);
+        return FullMath.mulDiv(priceX96, ETH_DECIMALS, 1 << 96);
+    }
+
+    function _oracleEthUsdcPrice() internal view returns (uint256) {
+        IChainlinkAggregatorV3 feed = IChainlinkAggregatorV3(Config.CHAINLINK_ETH_USD_FEED);
+        (, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+
+        if (answer <= 0) return 0;
+        if (updatedAt == 0) return 0;
+        if (updatedAt + Config.ORACLE_STALE_THRESHOLD < block.timestamp) return 0;
+
+        uint256 unsignedAnswer = uint256(answer);
+        uint8 feedDecimals = feed.decimals();
+
+        if (feedDecimals == 6) return unsignedAnswer;
+        if (feedDecimals > 6) return unsignedAnswer / (10 ** (feedDecimals - 6));
+        return unsignedAnswer * (10 ** (6 - feedDecimals));
     }
 
     /**

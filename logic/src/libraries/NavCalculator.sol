@@ -11,6 +11,7 @@ import {FixedPoint128} from "v4-core/src/libraries/FixedPoint128.sol";
 import {SqrtPriceMath} from "v4-core/src/libraries/SqrtPriceMath.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "v4-core/src/types/PoolId.sol";
+import {IChainlinkAggregatorV3} from "../interfaces/IChainlinkAggregatorV3.sol";
 
 abstract contract NavCalculator is VaultStorage {
 
@@ -152,10 +153,42 @@ abstract contract NavCalculator is VaultStorage {
         (uint256 totalPositionEth, uint256 totalPositionUsdc) = computeTotalPositionValue(sqrtPriceX96, currentTick);
         totalEth  = totalPositionEth  + idleEth;
         totalUsdc = totalPositionUsdc + idleUsdc;
-        uint256 ethPriceUsdc = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 192) * 1e12;
+        uint256 ethPriceUsdc = _guardedEthUsdcPrice(sqrtPriceX96);
         uint256 ethValueInUsdc = FullMath.mulDiv(totalEth, ethPriceUsdc, ETH_DECIMALS);
         navUsdc = ethValueInUsdc + totalUsdc;
         lastNavUsdc      = navUsdc;
         lastNavTimestamp = block.timestamp;
+    }
+
+    function _guardedEthUsdcPrice(uint160 sqrtPriceX96) internal view returns (uint256) {
+        uint256 priceX96 = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 96);
+        uint256 poolPrice = FullMath.mulDiv(priceX96, ETH_DECIMALS, 1 << 96);
+        uint256 oraclePrice = _oracleEthUsdcPriceForNav();
+
+        if (oraclePrice == 0) return poolPrice;
+        if (poolPrice == 0) return oraclePrice;
+
+        uint256 diff = poolPrice > oraclePrice ? poolPrice - oraclePrice : oraclePrice - poolPrice;
+        if (diff * 10_000 > oraclePrice * Config.MAX_POOL_ORACLE_DEVIATION_BPS) {
+            return oraclePrice;
+        }
+
+        return poolPrice;
+    }
+
+    function _oracleEthUsdcPriceForNav() internal view returns (uint256) {
+        IChainlinkAggregatorV3 feed = IChainlinkAggregatorV3(Config.CHAINLINK_ETH_USD_FEED);
+        (, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+
+        if (answer <= 0) return 0;
+        if (updatedAt == 0) return 0;
+        if (updatedAt + Config.ORACLE_STALE_THRESHOLD < block.timestamp) return 0;
+
+        uint256 unsignedAnswer = uint256(answer);
+        uint8 feedDecimals = feed.decimals();
+
+        if (feedDecimals == 6) return unsignedAnswer;
+        if (feedDecimals > 6) return unsignedAnswer / (10 ** (feedDecimals - 6));
+        return unsignedAnswer * (10 ** (6 - feedDecimals));
     }
 }

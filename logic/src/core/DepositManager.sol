@@ -90,9 +90,9 @@ contract DepositManager is ShareAccounting, NavCalculator{
             initialized  = true;
         }
 
-        uint256 idx = userIndex[msg.sender];
+        uint256 idxPlusOne = userIndex[msg.sender];
 
-        if (idx == 0) {
+        if (idxPlusOne == 0) {
             users.push(User({
                 ethDeposited:     msg.value,
                 usdcDeposited:    usdcAmount,
@@ -100,9 +100,9 @@ contract DepositManager is ShareAccounting, NavCalculator{
                 depositTimestamp: block.timestamp,
                 isActive:         true
             }));
-            userIndex[msg.sender] = users.length - 1;
+            userIndex[msg.sender] = users.length;
         } else {
-            User storage user = users[idx];
+            User storage user = users[idxPlusOne - 1];
             user.ethDeposited     += msg.value;
             user.usdcDeposited    += usdcAmount;
             user.sharesOwned      += sharesToMint;
@@ -137,9 +137,9 @@ contract DepositManager is ShareAccounting, NavCalculator{
      */
     function withdraw(uint256 sharesToBurn) external {
         if (sharesToBurn == 0) revert ZeroShares();
-        uint256 idx = userIndex[msg.sender];
-        if (idx == 0) revert InsufficientShares(sharesToBurn, 0); //never deposited
-        User storage user = users[idx];
+        uint256 idxPlusOne = userIndex[msg.sender];
+        if (idxPlusOne == 0) revert InsufficientShares(sharesToBurn, 0); //never deposited
+        User storage user = users[idxPlusOne - 1];
         if (user.sharesOwned < sharesToBurn) {
             revert InsufficientShares(sharesToBurn, user.sharesOwned);
         }

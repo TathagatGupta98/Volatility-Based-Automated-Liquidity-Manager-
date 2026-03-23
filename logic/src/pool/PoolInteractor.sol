@@ -87,12 +87,14 @@ contract PoolInteractor is IUnlockCallback {
     }
 
     /* ------------------------------- constructor ------------------------------ */
-    constructor(address _positionTracker) {
+    constructor(address _positionTracker, address _owner) {
+        require(_owner != address(0), "owner is zero");
         poolManager     = Config.poolManager;
         positionManager = Config.positionManager;
         USDC            = Config.USDC_ADDRESS;
         positionTracker = PositionTracker(_positionTracker);
-        owner           = msg.sender;
+        owner           = _owner;
+        volatilityUpdater = _owner;
         volatilityIndex = Config.DEFAULT_VOLATILITY_INDEX;
     }
 
