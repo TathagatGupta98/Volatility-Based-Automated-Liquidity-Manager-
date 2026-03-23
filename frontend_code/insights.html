@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALM Insights</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="insights">
+  <div class="bg-grid"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <header class="site-header glass">
+    <a class="brand" href="./index.html"><span class="brand-dot"></span>ALM Protocol</a>
+    <nav class="main-nav">
+      <a href="./index.html" data-nav="home">Home</a>
+      <a href="./vault.html" data-nav="vault">Vault</a>
+      <a href="./insights.html" data-nav="insights">Insights</a>
+    </nav>
+    <button id="connectBtn" class="btn btn-primary">Connect Wallet</button>
+  </header>
+
+  <main class="container insights-layout">
+    <section class="glass chart-card tilt">
+      <h2>Volatility Pulse</h2>
+      <canvas id="volatilityCanvas" width="800" height="280"></canvas>
+      <p class="hint">Live stream based on latest `getVolatilitySnapshot()` samples.</p>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel glass tilt">
+        <h3>Current Volatility Index</h3>
+        <div class="panel-value" id="insightVolIndex">-</div>
+      </article>
+      <article class="panel glass tilt">
+        <h3>Current Volatility Value</h3>
+        <div class="panel-value" id="insightVolValue">-</div>
+      </article>
+      <article class="panel glass tilt">
+        <h3>Should Rebalance</h3>
+        <div class="panel-value" id="insightRebalance">-</div>
+      </article>
+    </section>
+
+    <section class="glass signal-card">
+      <h2>Engine Signals</h2>
+      <div class="signal-grid">
+        <div><span>Pool Interactor Configured</span><strong id="sigPoolInteractor">-</strong></div>
+        <div><span>Can Push Volatility</span><strong id="sigVolPush">-</strong></div>
+        <div><span>Can Rebalance</span><strong id="sigCanRebalance">-</strong></div>
+        <div><span>Drift Needs Rebalance</span><strong id="sigDrift">-</strong></div>
+      </div>
+      <button id="refreshInsightsBtn" class="btn btn-ghost">Refresh Signals</button>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
+  <script src="./configurations.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "alm-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local server scripts for ALM frontend",
+  "scripts": {
+    "start": "node server.js",
+    "start:node": "npx --yes http-server -p 5500 -c-1 ."
+  }
+}

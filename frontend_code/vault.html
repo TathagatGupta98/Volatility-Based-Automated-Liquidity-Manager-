@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALM Vault Console</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="vault">
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-3"></div>
+
+  <header class="site-header glass">
+    <a class="brand" href="./index.html"><span class="brand-dot"></span>ALM Protocol</a>
+    <nav class="main-nav">
+      <a href="./index.html" data-nav="home">Home</a>
+      <a href="./vault.html" data-nav="vault">Vault</a>
+      <a href="./insights.html" data-nav="insights">Insights</a>
+    </nav>
+    <button id="connectBtn" class="btn btn-primary">Connect Wallet</button>
+  </header>
+
+  <main class="container vault-layout">
+    <section class="action-card glass tilt">
+      <h2>Deposit</h2>
+      <label>ETH Amount</label>
+      <input id="depositEth" type="number" min="0" step="0.0001" placeholder="0.05" />
+      <label>USDC Amount</label>
+      <input id="depositUsdc" type="number" min="0" step="0.01" placeholder="100" />
+      <button id="depositBtn" class="btn btn-primary">Deposit to Vault</button>
+    </section>
+
+    <section class="action-card glass tilt">
+      <h2>Withdraw</h2>
+      <label>Shares to Burn</label>
+      <input id="withdrawShares" type="number" min="0" step="0.000001" placeholder="10" />
+      <button id="withdrawBtn" class="btn btn-primary">Withdraw</button>
+    </section>
+
+    <section class="action-card glass tilt">
+      <h2>Automation & Rebalance</h2>
+      <label>Liquidity Amount</label>
+      <input id="rebalanceLiquidity" type="number" min="0" step="1" placeholder="100000" />
+      <div class="action-row">
+        <button id="executeCycleBtn" class="btn btn-ghost">Execute Engine Cycle</button>
+        <button id="syncVolBtn" class="btn btn-ghost">Sync Volatility</button>
+      </div>
+      <div class="action-row">
+        <button id="performUpkeepBtn" class="btn btn-ghost">Perform Upkeep</button>
+        <button id="refreshBtn" class="btn btn-ghost">Refresh Data</button>
+      </div>
+    </section>
+
+    <section class="metrics-card glass">
+      <h2>Vault State</h2>
+      <div class="metric-grid">
+        <div><span>Idle ETH</span><strong id="idleEth">-</strong></div>
+        <div><span>Idle USDC</span><strong id="idleUsdc">-</strong></div>
+        <div><span>Total ETH Deposited</span><strong id="totalEthDeposited">-</strong></div>
+        <div><span>Total USDC Deposited</span><strong id="totalUsdcDeposited">-</strong></div>
+        <div><span>Volatility Index</span><strong id="volatilityIndex">-</strong></div>
+        <div><span>Volatility Value</span><strong id="volatilityValue">-</strong></div>
+        <div><span>Active Positions</span><strong id="activePositionCount">-</strong></div>
+        <div><span>Interval</span><strong id="interval">-</strong></div>
+        <div><span>Your Shares</span><strong id="userShares">-</strong></div>
+        <div><span>Your Ownership</span><strong id="userOwnership">-</strong></div>
+      </div>
+    </section>
+
+    <section class="status-strip glass full-width">
+      <div><span>Wallet</span><strong id="walletAddress">Not connected</strong></div>
+      <div><span>Network</span><strong id="networkName">Unknown</strong></div>
+      <div><span>Status</span><strong id="statusMessage">Ready</strong></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
+  <script src="./configurations.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

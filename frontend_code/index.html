@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALM Protocol | Volatility-Based Liquidity Manager</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="home">
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <header class="site-header glass">
+    <a class="brand" href="./index.html">
+      <span class="brand-dot"></span>
+      ALM Protocol
+    </a>
+    <nav class="main-nav">
+      <a href="./index.html" data-nav="home">Home</a>
+      <a href="./vault.html" data-nav="vault">Vault</a>
+      <a href="./insights.html" data-nav="insights">Insights</a>
+    </nav>
+    <button id="connectBtn" class="btn btn-primary">Connect Wallet</button>
+  </header>
+
+  <main class="container home-layout">
+    <section class="hero-card tilt glass">
+      <h1>Maximize Yield with Adaptive Volatility Liquidity</h1>
+      <p>
+        The Volatility-Based Automated Liquidity Manager dynamically adjusts exposure,
+        monitors market drift, and executes intelligent rebalancing through your deployed ALM vault.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="./vault.html">Launch Vault Console</a>
+        <a class="btn btn-ghost" href="./insights.html">View Live Insights</a>
+      </div>
+      <div class="hero-stats">
+        <div class="mini-card"><span>Total Shares</span><strong id="kpiTotalShares">-</strong></div>
+        <div class="mini-card"><span>Volatility Index</span><strong id="kpiVolatility">-</strong></div>
+        <div class="mini-card"><span>Vault Paused</span><strong id="kpiPaused">-</strong></div>
+      </div>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel glass tilt">
+        <h3>Auto Rebalance</h3>
+        <p>Toggle strategy automation and let upkeep + drift checks optimize your LP posture.</p>
+        <div class="panel-value" id="kpiAutoRebalance">-</div>
+      </article>
+      <article class="panel glass tilt">
+        <h3>ETH/USDC Price</h3>
+        <p>Live on-chain ratio from your configured pool state.</p>
+        <div class="panel-value" id="kpiPrice">-</div>
+      </article>
+      <article class="panel glass tilt">
+        <h3>Engine Ready</h3>
+        <p>Instant read on module wiring + rebalance readiness.</p>
+        <div class="panel-value" id="kpiReady">-</div>
+      </article>
+    </section>
+
+    <section class="status-strip glass">
+      <div><span>Wallet</span><strong id="walletAddress">Not connected</strong></div>
+      <div><span>Network</span><strong id="networkName">Unknown</strong></div>
+      <div><span>Contract</span><strong id="contractAddressDisplay">-</strong></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
+  <script src="./configurations.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
