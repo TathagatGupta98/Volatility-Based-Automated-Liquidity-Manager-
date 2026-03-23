@@ -31,6 +31,52 @@ interface IPositionTrackerReader {
 contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
     using StateLibrary for IPoolManager;
 
+    event PoolInteractorUpdated(address indexed caller, address indexed poolInteractor);
+    event PositionTrackerUpdated(address indexed caller, address indexed positionTracker);
+    event ModulesConfigured(
+        address indexed caller,
+        address indexed poolInteractor,
+        address indexed positionTracker,
+        uint256 rebalanceLiquidity,
+        uint256 interval,
+        bool autoRebalanceEnabled,
+        bool driftRebalanceEnabled,
+        bool paused
+    );
+    event PoolUpdaterSet(address indexed caller, address indexed updater);
+    event IntervalUpdated(address indexed caller, uint256 previousInterval, uint256 newInterval);
+    event RebalanceLiquidityUpdated(address indexed caller, uint256 previousLiquidity, uint256 newLiquidity);
+    event AutoRebalanceUpdated(address indexed caller, bool enabled);
+    event DriftRebalanceUpdated(address indexed caller, bool enabled);
+    event VaultUnpaused(address indexed caller);
+    event VolatilityCalculated(
+        uint8 indexed volatilityIndex,
+        uint256 volatilityValue,
+        int24 currentTick,
+        uint256 timestamp,
+        uint256 blockNumber
+    );
+    event VolatilitySynced(
+        uint8 indexed previousVolatilityIndex,
+        uint8 indexed currentVolatilityIndex,
+        uint256 volatilityValue
+    );
+    event RebalanceExecuted(
+        address indexed caller,
+        uint256 liquidityUsed,
+        uint8 volatilityIndex,
+        bool indexChanged,
+        bool driftTriggered
+    );
+    event UpkeepPerformed(
+        address indexed caller,
+        bool timeElapsed,
+        bool driftNeedsRebalance,
+        uint256 liquidityUsed,
+        uint8 currentVolatilityIndex,
+        bool rebalanced
+    );
+
     error VeryFrequentUpkeep();
     error PoolInteractorNotSet();
     error PositionTrackerNotSet();
@@ -88,6 +134,8 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         volatilityLastTick = currentTick;
         lastObservationTimestamp = currentTimestamp;
         volatilityLastObservationBlock = currentBlock;
+
+        emit VolatilityCalculated(volatilityIndexState, volatilityCalculated, currentTick, currentTimestamp, currentBlock);
     }
 
     function getVolatilityIndex() public view returns (uint8) {
@@ -148,11 +196,13 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
     function setPoolInteractor(address poolInteractorAddress) external {
         if (poolInteractorAddress == address(0)) revert PoolInteractorNotSet();
         poolInteractor = IPoolInteractorVolatility(poolInteractorAddress);
+        emit PoolInteractorUpdated(msg.sender, poolInteractorAddress);
     }
 
     function setPositionTracker(address positionTrackerAddress) external {
         if (positionTrackerAddress == address(0)) revert PositionTrackerNotSet();
         positionTracker = IPositionTrackerReader(positionTrackerAddress);
+        emit PositionTrackerUpdated(msg.sender, positionTrackerAddress);
     }
 
     function configureModules(
@@ -177,6 +227,17 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         autoRebalanceEnabled = true;
         driftRebalanceEnabled = true;
         paused = false;
+
+        emit ModulesConfigured(
+            msg.sender,
+            address(poolInteractor),
+            address(positionTracker),
+            rebalanceLiquidity,
+            interval,
+            autoRebalanceEnabled,
+            driftRebalanceEnabled,
+            paused
+        );
     }
 
     function turnEverythingOn(uint256 rebalanceLiquidityAmount, uint256 upkeepInterval) external {
@@ -193,34 +254,54 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
 
         if (address(poolInteractor) != address(0)) {
             poolInteractor.setVolatilityUpdater(address(this));
+            emit PoolUpdaterSet(msg.sender, address(this));
         }
+
+        emit ModulesConfigured(
+            msg.sender,
+            address(poolInteractor),
+            address(positionTracker),
+            rebalanceLiquidity,
+            interval,
+            autoRebalanceEnabled,
+            driftRebalanceEnabled,
+            paused
+        );
     }
 
     function setSelfAsPoolUpdater() external {
         if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
         poolInteractor.setVolatilityUpdater(address(this));
+        emit PoolUpdaterSet(msg.sender, address(this));
     }
 
     function setInterval(uint256 newInterval) external {
         require(newInterval > 0, "Interval must be greater than 0");
+        uint256 previousInterval = interval;
         interval = newInterval;
+        emit IntervalUpdated(msg.sender, previousInterval, newInterval);
     }
 
     function setRebalanceLiquidity(uint256 newRebalanceLiquidity) external {
         require(newRebalanceLiquidity > 0, "Rebalance liquidity must be greater than 0");
+        uint256 previousLiquidity = rebalanceLiquidity;
         rebalanceLiquidity = newRebalanceLiquidity;
+        emit RebalanceLiquidityUpdated(msg.sender, previousLiquidity, newRebalanceLiquidity);
     }
 
     function setAutoRebalanceEnabled(bool enabled) external {
         autoRebalanceEnabled = enabled;
+        emit AutoRebalanceUpdated(msg.sender, enabled);
     }
 
     function setDriftRebalanceEnabled(bool enabled) external {
         driftRebalanceEnabled = enabled;
+        emit DriftRebalanceUpdated(msg.sender, enabled);
     }
 
     function unpauseVault() external {
         paused = false;
+        emit VaultUnpaused(msg.sender);
     }
 
     function getProtocolCoreAddresses()
@@ -302,6 +383,8 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
     function syncVolatilityIndex() public returns (uint8 currentVolatilityIndex, uint256 currentVolatilityValue) {
         if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
 
+        uint8 previousVolatilityIndex = lastVolatilityIndex;
+
         calculateVolatility();
         currentVolatilityIndex = getVolatilityIndex();
         currentVolatilityValue = getVolatilityValue();
@@ -311,6 +394,7 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         }
 
         poolInteractor.setVolatilityIndex(currentVolatilityIndex);
+        emit VolatilitySynced(previousVolatilityIndex, currentVolatilityIndex, currentVolatilityValue);
     }
 
     function previewSyncVolatilityIndex()
@@ -361,6 +445,7 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
         (uint8 currentVolatilityIndex,) = syncVolatilityIndex();
         poolInteractor.rebalance(totalLiquidityAvailable, currentVolatilityIndex);
+        emit RebalanceExecuted(msg.sender, totalLiquidityAvailable, currentVolatilityIndex, false, false);
     }
 
     function pushVolatilityIndexOnly()
@@ -384,16 +469,25 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         (uint8 currentVolatilityIndex,) = syncVolatilityIndex();
 
         bool shouldRebalance = false;
+        bool driftTriggered = false;
         if (autoRebalanceEnabled) {
             shouldRebalance = currentVolatilityIndex != previousVolatilityIndex;
         }
 
         if (driftRebalanceEnabled) {
-            shouldRebalance = shouldRebalance || poolInteractor.needsTickDriftRebalance();
+            driftTriggered = poolInteractor.needsTickDriftRebalance();
+            shouldRebalance = shouldRebalance || driftTriggered;
         }
 
         if (shouldRebalance && rebalanceLiquidity > 0) {
             poolInteractor.rebalance(rebalanceLiquidity, currentVolatilityIndex);
+            emit RebalanceExecuted(
+                msg.sender,
+                rebalanceLiquidity,
+                currentVolatilityIndex,
+                currentVolatilityIndex != previousVolatilityIndex,
+                driftTriggered
+            );
         }
     }
 
@@ -404,16 +498,25 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         (uint8 currentVolatilityIndex,) = syncVolatilityIndex();
 
         bool shouldRebalance = false;
+        bool driftTriggered = false;
         if (autoRebalanceEnabled) {
             shouldRebalance = currentVolatilityIndex != previousVolatilityIndex;
         }
 
         if (driftRebalanceEnabled) {
-            shouldRebalance = shouldRebalance || poolInteractor.needsTickDriftRebalance();
+            driftTriggered = poolInteractor.needsTickDriftRebalance();
+            shouldRebalance = shouldRebalance || driftTriggered;
         }
 
         if (shouldRebalance && liquidityToUse > 0) {
             poolInteractor.rebalance(liquidityToUse, currentVolatilityIndex);
+            emit RebalanceExecuted(
+                msg.sender,
+                liquidityToUse,
+                currentVolatilityIndex,
+                currentVolatilityIndex != previousVolatilityIndex,
+                driftTriggered
+            );
         }
     }
 
@@ -462,10 +565,22 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
 
         bool indexChanged = currentVolatilityIndex != previousVolatilityIndex;
         bool shouldRebalance = (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
+        bool rebalanced = false;
 
         if (shouldRebalance && liquidityToUse > 0) {
             poolInteractor.rebalance(liquidityToUse, currentVolatilityIndex);
+            rebalanced = true;
+            emit RebalanceExecuted(msg.sender, liquidityToUse, currentVolatilityIndex, indexChanged, driftNeedsRebalance);
         }
+
+        emit UpkeepPerformed(
+            msg.sender,
+            timeElapsed,
+            driftNeedsRebalance,
+            liquidityToUse,
+            currentVolatilityIndex,
+            rebalanced
+        );
     }
 
 }
