@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^forge build$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
