@@ -525,11 +525,9 @@
 
   async function refreshInsights() {
     const contract = await ensureContract(false);
-    const [volSnap, rebalancePreview, integration] = await Promise.all([
-      contract.getVolatilitySnapshot(),
-      contract.previewShouldRebalanceNow(),
-      contract.getIntegrationStatus()
-    ]);
+    const volSnap = await safeCall(() => contract.getVolatilitySnapshot(), [0n, 0n, 0n, 0n, 0n]);
+    const rebalancePreview = await safeCall(() => contract.previewShouldRebalanceNow(), [false, false]);
+    const integration = await safeCall(() => contract.getIntegrationStatus(), [false, false, false, 0, false, 0n, 0n]);
 
     const volIndex = Number(volSnap?.[0] || 0);
     const volValue = Number(volSnap?.[1] || 0);
@@ -542,6 +540,12 @@
     setText("sigVolPush", integration?.[1] ? "Yes" : "No");
     setText("sigCanRebalance", integration?.[2] ? "Yes" : "No");
     setText("sigDrift", integration?.[4] ? "Yes" : "No");
+
+    if (!integration?.[0]) {
+      setStatus("Insights loaded with limited engine signals (pool interactor not configured or read failed).", true);
+    } else {
+      setStatus("Insights updated.");
+    }
 
     const normalized = Math.max(0.05, Math.min(1, volIndex / 3 + (volValue % 1000000) / 1000000));
     state.samples.push(normalized);
@@ -656,9 +660,15 @@
 
   function bindInsightsActions() {
     const refreshBtn = document.getElementById("refreshInsightsBtn");
-    refreshBtn?.addEventListener("click", refreshAll);
+    refreshBtn?.addEventListener("click", async () => {
+      await refreshAll();
+    });
     setInterval(() => {
-      if (document.body.dataset.page === "insights") refreshInsights();
+      if (document.body.dataset.page === "insights") {
+        refreshInsights().catch((err) => {
+          setStatus(`Insights polling failed: ${err?.shortMessage || err?.message || "Unknown error"}`, true);
+        });
+      }
     }, 12000);
   }
 

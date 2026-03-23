@@ -53,6 +53,13 @@
       </div>
       <button id="refreshInsightsBtn" class="btn btn-ghost">Refresh Signals</button>
     </section>
+
+    <section class="status-strip glass">
+      <div><span>Wallet</span><strong id="walletAddress">Not connected</strong></div>
+      <div><span>Network</span><strong id="networkName">Unknown</strong></div>
+      <div><span>Contract</span><strong id="contractAddressDisplay">-</strong></div>
+      <div><span>Status</span><strong id="statusMessage">Ready</strong></div>
+    </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
