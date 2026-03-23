@@ -497,36 +497,46 @@
 
     const entries = state.samples.length
       ? state.samples
-      : [{ timestamp: Date.now(), volValue: 0, volIndex: 0 }];
+      : [{ timestamp: Date.now(), volValue: 0, volIndex: 1 }];
 
-    const points = entries.map((entry) => {
-      const value = Number(entry?.volValue || 0);
-      if (value > 0) return value;
-      return Number(entry?.volIndex || 0);
-    });
+    const laneTop = 40;
+    const laneBottom = height - 40;
+    const laneGap = (laneBottom - laneTop) / 2;
+    const laneY = {
+      3: laneTop,
+      2: laneTop + laneGap,
+      1: laneBottom
+    };
 
-    const min = Math.min(...points, 0);
-    const max = Math.max(...points, 1);
-    const spread = Math.max(max - min, 1);
+    const laneMeta = [
+      { idx: 3, label: "High" },
+      { idx: 2, label: "Medium" },
+      { idx: 1, label: "Low" }
+    ];
 
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
-    for (let i = 1; i < 5; i++) {
-      const y = (height / 5) * i;
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1.4;
+    ctx.fillStyle = "rgba(238,242,255,0.75)";
+    ctx.font = "12px Inter, system-ui, sans-serif";
+    laneMeta.forEach(({ idx, label }) => {
+      const y = laneY[idx];
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(20, y);
+      ctx.lineTo(width - 20, y);
       ctx.stroke();
-    }
+      ctx.fillText(label, 6, y - 6);
+    });
 
     const grad = ctx.createLinearGradient(0, 0, width, 0);
     grad.addColorStop(0, "#59c3ff");
     grad.addColorStop(1, "#9c6bff");
 
     const plottedPoints = [];
-    points.forEach((value, i) => {
-      const x = (i / Math.max(points.length - 1, 1)) * (width - 40) + 20;
-      const normalized = (value - min) / spread;
-      const y = height - normalized * (height - 50) - 25;
+    entries.forEach((entry, i) => {
+      const x = (i / Math.max(entries.length - 1, 1)) * (width - 40) + 20;
+      const rawIndex = Number(entry?.volIndex || 1);
+      const level = rawIndex >= 3 ? 3 : rawIndex <= 1 ? 1 : 2;
+      const y = laneY[level];
       plottedPoints.push({ x, y });
     });
 
