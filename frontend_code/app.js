@@ -178,6 +178,17 @@
     return ethersLib.parseUnits(String(value), decimals);
   }
 
+  function formatPoolQuote(priceUsdcPerEthRaw) {
+    try {
+      const usdcPerEth = Number(ethersLib.formatUnits(priceUsdcPerEthRaw, 6));
+      if (!Number.isFinite(usdcPerEth) || usdcPerEth <= 0) return "-";
+      const ethPerUsdc = 1 / usdcPerEth;
+      return `1 ETH = ${usdcPerEth.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC | 1 USDC = ${ethPerUsdc.toFixed(8)} ETH`;
+    } catch {
+      return "-";
+    }
+  }
+
   async function initProvider() {
     if (!hasEthers()) throw new Error("ethers.js failed to load.");
     if (!hasEthereumProvider()) throw new Error("MetaMask not found.");
@@ -415,20 +426,12 @@
     setText("kpiPaused", paused ? "Yes" : "No");
     setText("kpiAutoRebalance", auto ? "Enabled" : "Disabled");
 
-    if (price == null) {
+    if (price == null || price === 0n) {
       setText("kpiPrice", "-");
-    } else if (price === 0n) {
-      const fallbackPrice = await safeCall(fetchEthUsdFallback, null);
-      if (fallbackPrice == null) {
-        setText("kpiPrice", "0 (on-chain)");
-        notes.push("On-chain ETH/USDC price returned 0 and fallback API failed.");
-        hasErrorNote = true;
-      } else {
-        setText("kpiPrice", `${fallbackPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} (fallback)`);
-        notes.push("On-chain ETH/USDC price is 0; showing fallback market price.");
-      }
+      notes.push("Pool ETH/USDC quote unavailable.");
+      hasErrorNote = true;
     } else {
-      setText("kpiPrice", formatUnitsSafe(price, 18));
+      setText("kpiPrice", formatPoolQuote(price));
     }
 
     setText("kpiReady", ready?.[0] ? "Ready" : "Not Ready");
