@@ -3,6 +3,10 @@
         "/^forge build$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^forge script script/DeployVault\\.s\\.sol:DeployVault --chain-id 11155111 --rpc-url https://ethereum-sepolia-rpc\\.publicnode\\.com --broadcast$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
