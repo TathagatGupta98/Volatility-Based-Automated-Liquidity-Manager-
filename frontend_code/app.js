@@ -114,10 +114,7 @@
       const iface = new ethersLib.Interface(cfg.contractABI);
       const required = [
         "deposit",
-        "withdraw",
-        "executeEngineCycleWithLiquidity",
-        "syncVolatilityIndex",
-        "performUpkeep"
+        "withdraw"
       ];
       return required.every((name) => {
         try {
@@ -452,8 +449,9 @@
     const contract = await ensureContract(false);
     const idleEth = await safeCall(() => contract.idleEth(), 0n);
     const idleUsdc = await safeCall(() => contract.idleUsdc(), 0n);
-    const totalEth = await safeCall(() => contract.totalEthDeposited(), 0n);
-    const totalUsdc = await safeCall(() => contract.totalUsdcDeposited(), 0n);
+    const navPreview = await safeCall(() => contract.previewNav(), null);
+    const totalEth = navPreview?.[0] ?? 0n;
+    const totalUsdc = navPreview?.[1] ?? 0n;
     const totalShares = await safeCall(() => contract.totalShares(), 0n);
     const volIdx = await safeCall(() => contract.getVolatilityIndex(), 0n);
     const volValue = await safeCall(() => contract.getVolatilityValue(), 0n);
@@ -611,10 +609,6 @@
   function bindVaultActions() {
     const depositBtn = document.getElementById("depositBtn");
     const withdrawBtn = document.getElementById("withdrawBtn");
-    const executeCycleBtn = document.getElementById("executeCycleBtn");
-    const syncVolBtn = document.getElementById("syncVolBtn");
-    const performUpkeepBtn = document.getElementById("performUpkeepBtn");
-    const refreshBtn = document.getElementById("refreshBtn");
 
     depositBtn?.addEventListener("click", async () => {
       const initialLabel = depositBtn.textContent;
@@ -634,11 +628,12 @@
           }
 
           const minDepositUsdc = 20n * 1000000n;
-          const ethPrice = await safeCall(() => state.contract.getEthUsdcPrice(), 0n);
-          const depositValueUsdc = usdcAmount + ((ethValue * ethPrice) / (10n ** 18n));
-
-          if (depositValueUsdc < minDepositUsdc) {
-            throw new Error("Minimum deposit is 20 USDC equivalent. Increase ETH amount.");
+          const ethPrice = await safeCall(() => state.contract.getEthUsdcPrice(), null);
+          if (ethPrice && ethPrice > 0n) {
+            const depositValueUsdc = usdcAmount + ((ethValue * ethPrice) / (10n ** 18n));
+            if (depositValueUsdc < minDepositUsdc) {
+              throw new Error("Minimum deposit is 20 USDC equivalent. Increase ETH amount.");
+            }
           }
 
           if (usdcAmount > 0n) {
@@ -667,39 +662,6 @@
       });
     });
 
-    executeCycleBtn?.addEventListener("click", async () => {
-      await runVaultAction("Engine Cycle", async () => {
-        await assertIntegrationConfigured();
-        const liq = document.getElementById("rebalanceLiquidity").value;
-        const liquidity = parseAmount(liq, 0);
-
-        if (liquidity <= 0n) {
-          throw new Error("Enter rebalance liquidity amount.");
-        }
-
-        await callAndWait("Engine Cycle", () => state.contract.executeEngineCycleWithLiquidity(liquidity));
-      });
-    });
-
-    syncVolBtn?.addEventListener("click", async () => {
-      await runVaultAction("Sync Volatility", async () => {
-        await assertIntegrationConfigured();
-        await callAndWait("Sync Volatility", () => state.contract.syncVolatilityIndex());
-      });
-    });
-
-    performUpkeepBtn?.addEventListener("click", async () => {
-      await runVaultAction("Perform Upkeep", async () => {
-        await assertIntegrationConfigured();
-        const upkeep = await state.contract.checkUpkeep("0x");
-        if (!upkeep?.[0]) {
-          throw new Error("Upkeep not needed yet. Wait for interval/drift condition.");
-        }
-        await callAndWait("Perform Upkeep", () => state.contract.performUpkeep("0x"));
-      });
-    });
-
-    refreshBtn?.addEventListener("click", refreshAll);
   }
 
   function bindInsightsActions() {

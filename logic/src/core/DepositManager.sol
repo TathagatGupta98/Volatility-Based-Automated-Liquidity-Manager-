@@ -68,7 +68,7 @@ contract DepositManager is ShareAccounting, NavCalculator{
      * @notice Deposit ETH (msg.value) and/or USDC into the vault and mint corresponding shares.
      * @param usdcAmount Amount of USDC to deposit (in USDC base units).
      */
-    function deposit(uint256 usdcAmount) external payable whenNotPaused {
+    function deposit(uint256 usdcAmount) public payable virtual whenNotPaused {
         uint256 depositValueUsdc = computeDepositValueUsdc(msg.value, usdcAmount);
         validateDeposit(msg.value, usdcAmount, depositValueUsdc);
 

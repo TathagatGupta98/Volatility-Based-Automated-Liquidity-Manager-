@@ -19,6 +19,8 @@ interface IPoolInteractorVolatility {
     function setVolatilityUpdater(address updater) external;
     function rebalance(uint256 totalLiquidityAvailable, uint256 _volatilityIndex) external;
     function needsTickDriftRebalance() external view returns (bool);
+    function lastRebalanceTimestamp() external view returns (uint256);
+    function MIN_REBALANCE_INTERVAL() external view returns (uint256);
     function owner() external view returns (address);
     function volatilityUpdater() external view returns (address);
     function volatilityIndex() external view returns (uint8);
@@ -76,6 +78,13 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         uint8 currentVolatilityIndex,
         bool rebalanced
     );
+    event EventTriggeredRebalance(
+        address indexed caller,
+        uint8 indexed triggerType,
+        uint256 liquidityUsed,
+        uint8 volatilityIndex,
+        bool rebalanced
+    );
 
     error VeryFrequentUpkeep();
     error PoolInteractorNotSet();
@@ -85,6 +94,12 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
     uint256 public lastTimestamp;
     uint256 public interval = 300;
     uint8 public lastVolatilityIndex;
+    uint256 public constant REBALANCE_TARGET_BPS = 9000;
+    uint256 public constant BPS_DENOMINATOR = 10000;
+
+    uint8 private constant TRIGGER_TIME = 1;
+    uint8 private constant TRIGGER_DEPOSIT = 2;
+    uint8 private constant TRIGGER_MINT = 3;
 
     IPoolInteractorVolatility public poolInteractor;
     IPositionTrackerReader public positionTracker;
@@ -299,6 +314,12 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         emit DriftRebalanceUpdated(msg.sender, enabled);
     }
 
+    function deposit(uint256 usdcAmount) public payable override {
+        super.deposit(usdcAmount);
+        _rebalanceOnEvent(TRIGGER_DEPOSIT);
+        _rebalanceOnEvent(TRIGGER_MINT);
+    }
+
     function unpauseVault() external {
         paused = false;
         emit VaultUnpaused(msg.sender);
@@ -367,7 +388,7 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
     {
         hasPoolInteractor = address(poolInteractor) != address(0);
         hasPositionTracker = address(positionTracker) != address(0);
-        hasRebalanceLiquidity = rebalanceLiquidity > 0;
+        hasRebalanceLiquidity = true;
 
         if (hasPoolInteractor) {
             updaterSetToVault = poolInteractor.volatilityUpdater() == address(this);
@@ -459,7 +480,8 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         if (address(poolInteractor) == address(0)) revert PoolInteractorNotSet();
         driftNeedsRebalance = driftRebalanceEnabled && poolInteractor.needsTickDriftRebalance();
         bool indexChanged = getVolatilityIndex() != lastVolatilityIndex;
-        shouldRebalance = (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
+        bool timeElapsed = (block.timestamp - lastTimestamp) >= interval;
+        shouldRebalance = timeElapsed || (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
     }
 
     function executeEngineCycle() external {
@@ -479,11 +501,16 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
             shouldRebalance = shouldRebalance || driftTriggered;
         }
 
-        if (shouldRebalance && rebalanceLiquidity > 0) {
-            poolInteractor.rebalance(rebalanceLiquidity, currentVolatilityIndex);
+        if (shouldRebalance) {
+            uint256 dynamicLiquidity = _computeRebalanceLiquidityTarget();
+            if (dynamicLiquidity == 0) {
+                return;
+            }
+
+            poolInteractor.rebalance(dynamicLiquidity, currentVolatilityIndex);
             emit RebalanceExecuted(
                 msg.sender,
-                rebalanceLiquidity,
+                dynamicLiquidity,
                 currentVolatilityIndex,
                 currentVolatilityIndex != previousVolatilityIndex,
                 driftTriggered
@@ -555,7 +582,7 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
             lastTimestamp = block.timestamp;
         }
 
-        uint256 liquidityToUse = rebalanceLiquidity;
+        uint256 liquidityToUse = _computeRebalanceLiquidityTarget();
         if (performData.length == 32) {
             liquidityToUse = abi.decode(performData, (uint256));
         }
@@ -564,7 +591,7 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
         (uint8 currentVolatilityIndex,) = syncVolatilityIndex();
 
         bool indexChanged = currentVolatilityIndex != previousVolatilityIndex;
-        bool shouldRebalance = (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
+        bool shouldRebalance = timeElapsed || (autoRebalanceEnabled && indexChanged) || driftNeedsRebalance;
         bool rebalanced = false;
 
         if (shouldRebalance && liquidityToUse > 0) {
@@ -581,6 +608,61 @@ contract VaultIntegration is DepositManager, AutomationCompatibleInterface {
             currentVolatilityIndex,
             rebalanced
         );
+
+        if (timeElapsed) {
+            emit EventTriggeredRebalance(msg.sender, TRIGGER_TIME, liquidityToUse, currentVolatilityIndex, rebalanced);
+        }
+    }
+
+    function _computeRebalanceLiquidityTarget() internal returns (uint256) {
+        (, , uint256 navUsdc) = computeNav();
+        return (navUsdc * REBALANCE_TARGET_BPS) / BPS_DENOMINATOR;
+    }
+
+    function previewDynamicRebalanceLiquidity() external returns (uint256) {
+        return _computeRebalanceLiquidityTarget();
+    }
+
+    function _rebalanceOnEvent(uint8 triggerType) internal {
+        if (address(poolInteractor) == address(0)) {
+            emit EventTriggeredRebalance(msg.sender, triggerType, 0, lastVolatilityIndex, false);
+            return;
+        }
+
+        uint256 lastRebalance = poolInteractor.lastRebalanceTimestamp();
+        uint256 minInterval = poolInteractor.MIN_REBALANCE_INTERVAL();
+        if (block.timestamp < lastRebalance + minInterval) {
+            emit EventTriggeredRebalance(msg.sender, triggerType, 0, lastVolatilityIndex, false);
+            return;
+        }
+
+        uint8 currentVolatilityIndex;
+        bool rebalanced = false;
+        uint256 targetLiquidity;
+
+        try this.previewDynamicRebalanceLiquidity() returns (uint256 liquidity) {
+            targetLiquidity = liquidity;
+        } catch {
+            emit EventTriggeredRebalance(msg.sender, triggerType, 0, lastVolatilityIndex, false);
+            return;
+        }
+
+        if (targetLiquidity > 0) {
+            try this.syncVolatilityIndex() returns (uint8 syncedIndex, uint256) {
+                currentVolatilityIndex = syncedIndex;
+            } catch {
+                currentVolatilityIndex = lastVolatilityIndex;
+            }
+
+            try poolInteractor.rebalance(targetLiquidity, currentVolatilityIndex) {
+                rebalanced = true;
+                emit RebalanceExecuted(msg.sender, targetLiquidity, currentVolatilityIndex, false, false);
+            } catch {
+                rebalanced = false;
+            }
+        }
+
+        emit EventTriggeredRebalance(msg.sender, triggerType, targetLiquidity, currentVolatilityIndex, rebalanced);
     }
 
 }

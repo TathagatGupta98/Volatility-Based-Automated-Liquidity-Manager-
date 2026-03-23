@@ -160,6 +160,26 @@ abstract contract NavCalculator is VaultStorage {
         lastNavTimestamp = block.timestamp;
     }
 
+    /**
+     * @notice Preview current vault balances and NAV without mutating state.
+     * @return totalEth Combined ETH from active positions and idle buffer.
+     * @return totalUsdc Combined USDC from active positions and idle buffer.
+     * @return navUsdc Net asset value in USDC.
+     */
+    function previewNav() public view returns (
+        uint256 totalEth,
+        uint256 totalUsdc,
+        uint256 navUsdc
+    ) {
+        (uint160 sqrtPriceX96, int24 currentTick, , ) = poolManager.getSlot0(Config.poolId());
+        (uint256 totalPositionEth, uint256 totalPositionUsdc) = computeTotalPositionValue(sqrtPriceX96, currentTick);
+        totalEth  = totalPositionEth  + idleEth;
+        totalUsdc = totalPositionUsdc + idleUsdc;
+        uint256 ethPriceUsdc = _guardedEthUsdcPrice(sqrtPriceX96);
+        uint256 ethValueInUsdc = FullMath.mulDiv(totalEth, ethPriceUsdc, ETH_DECIMALS);
+        navUsdc = ethValueInUsdc + totalUsdc;
+    }
+
     function _guardedEthUsdcPrice(uint160 sqrtPriceX96) internal view returns (uint256) {
         uint256 priceX96 = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 96);
         uint256 poolPrice = FullMath.mulDiv(priceX96, ETH_DECIMALS, 1 << 96);

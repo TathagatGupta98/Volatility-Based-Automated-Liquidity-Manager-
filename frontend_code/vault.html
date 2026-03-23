@@ -38,18 +38,9 @@
       <button id="withdrawBtn" class="btn btn-primary">Withdraw</button>
     </section>
 
-    <section class="action-card glass tilt">
+    <section class="action-card glass tilt full-width">
       <h2>Automation & Rebalance</h2>
-      <label>Liquidity Amount</label>
-      <input id="rebalanceLiquidity" type="number" min="0" step="1" placeholder="100000" />
-      <div class="action-row">
-        <button id="executeCycleBtn" class="btn btn-ghost">Execute Engine Cycle</button>
-        <button id="syncVolBtn" class="btn btn-ghost">Sync Volatility</button>
-      </div>
-      <div class="action-row">
-        <button id="performUpkeepBtn" class="btn btn-ghost">Perform Upkeep</button>
-        <button id="refreshBtn" class="btn btn-ghost">Refresh Data</button>
-      </div>
+      <p class="hint">Rebalances 90% of vault liquidity automatically on 5-minute interval, new deposit, and share mint events.</p>
     </section>
 
     <section class="metrics-card glass">
@@ -57,8 +48,8 @@
       <div class="metric-grid">
         <div><span>Idle ETH</span><strong id="idleEth">-</strong></div>
         <div><span>Idle USDC</span><strong id="idleUsdc">-</strong></div>
-        <div><span>Total ETH Deposited</span><strong id="totalEthDeposited">-</strong></div>
-        <div><span>Total USDC Deposited</span><strong id="totalUsdcDeposited">-</strong></div>
+        <div><span>Total ETH Held</span><strong id="totalEthDeposited">-</strong></div>
+        <div><span>Total USDC Held</span><strong id="totalUsdcDeposited">-</strong></div>
         <div><span>Volatility Index</span><strong id="volatilityIndex">-</strong></div>
         <div><span>Volatility Value</span><strong id="volatilityValue">-</strong></div>
         <div><span>Active Positions</span><strong id="activePositionCount">-</strong></div>
