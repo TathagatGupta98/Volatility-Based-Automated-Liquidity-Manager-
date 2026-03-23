@@ -495,8 +495,19 @@
     ctx.fillStyle = "rgba(8,15,30,0.9)";
     ctx.fillRect(0, 0, width, height);
 
-    const points = state.samples.length ? state.samples : [0.2, 0.4, 0.3, 0.6, 0.5];
+    const entries = state.samples.length
+      ? state.samples
+      : [{ timestamp: Date.now(), volValue: 0, volIndex: 0 }];
+
+    const points = entries.map((entry) => {
+      const value = Number(entry?.volValue || 0);
+      if (value > 0) return value;
+      return Number(entry?.volIndex || 0);
+    });
+
+    const min = Math.min(...points, 0);
     const max = Math.max(...points, 1);
+    const spread = Math.max(max - min, 1);
 
     ctx.strokeStyle = "rgba(255,255,255,0.1)";
     for (let i = 1; i < 5; i++) {
@@ -510,17 +521,37 @@
     const grad = ctx.createLinearGradient(0, 0, width, 0);
     grad.addColorStop(0, "#59c3ff");
     grad.addColorStop(1, "#9c6bff");
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 3;
 
-    ctx.beginPath();
+    const plottedPoints = [];
     points.forEach((value, i) => {
       const x = (i / Math.max(points.length - 1, 1)) * (width - 40) + 20;
-      const y = height - (value / max) * (height - 40) - 20;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      const normalized = (value - min) / spread;
+      const y = height - normalized * (height - 50) - 25;
+      plottedPoints.push({ x, y });
     });
-    ctx.stroke();
+
+    ctx.fillStyle = grad;
+    plottedPoints.forEach(({ x, y }) => {
+      ctx.beginPath();
+      ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    const timeLabels = [0, Math.floor((entries.length - 1) / 2), entries.length - 1]
+      .filter((idx, pos, arr) => idx >= 0 && arr.indexOf(idx) === pos);
+    ctx.fillStyle = "rgba(238,242,255,0.75)";
+    ctx.font = "12px Inter, system-ui, sans-serif";
+    timeLabels.forEach((idx) => {
+      const entry = entries[idx];
+      if (!entry?.timestamp) return;
+      const x = (idx / Math.max(entries.length - 1, 1)) * (width - 40) + 20;
+      const label = new Date(entry.timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+      ctx.fillText(label, Math.max(4, x - 30), height - 6);
+    });
   }
 
   async function refreshInsights() {
@@ -547,9 +578,12 @@
       setStatus("Insights updated.");
     }
 
-    const normalized = Math.max(0.05, Math.min(1, volIndex / 3 + (volValue % 1000000) / 1000000));
-    state.samples.push(normalized);
-    if (state.samples.length > 40) state.samples.shift();
+    state.samples.push({
+      timestamp: Date.now(),
+      volValue,
+      volIndex
+    });
+    if (state.samples.length > 100) state.samples.shift();
     drawVolatilityChart();
   }
 
